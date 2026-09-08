@@ -301,12 +301,13 @@ independently idempotent; treat stalls as possible duplication.
 
 Define one strict versioned identifier-only envelope near the domain; import
 producer/worker modules only into their process graphs; choose delivery policy
-from real constraints; test request rejection, failure classification and
-module composition. Real Redis tests need a unique prefix, bounded waits and
+from real constraints; test consequential rejection, failure classification and
+recovery. Module registration assertions do not prove execution behavior.
+Real Redis tests need a unique prefix, bounded waits and
 exact cleanup. Add outbox + durable side-effect idempotency before claiming
 critical delivery.
 
-Focused coverage: URL/options mapping, process composition, connection settle at
+Focused coverage: connection failure policy, connection settle at
 shutdown, dashboard security, deterministic IDs, payload/version rejection,
 permanent vs transient failures, assistant attempt fencing, ingress replay,
 revision/epoch/token fencing, atomic outbox `SKIP LOCKED`/CAS/pre-send marker,

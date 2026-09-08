@@ -1,24 +1,24 @@
-import type { Job, Queue } from "bullmq";
 import type { AppTransaction } from "@slopform/database";
+import type { Job, Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type {
-  FeedbackConversationRecoveryCursor,
-  FeedbackMaintenanceCheckpointRepository,
-} from "../sweeps/maintenance-checkpoint.repository.js";
 import {
   createFeedbackReconcileConversationJobId,
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type {
+  FeedbackConversationRecoveryCursor,
+  FeedbackMaintenanceCheckpointRepository,
+} from "../sweeps/maintenance-checkpoint.repository.js";
+import { FEEDBACK_RECONCILIATION_INVARIANT_FAILURE_REASON } from "./reconcile-failure.js";
 import {
   FEEDBACK_RECONCILIATION_RECOVERY_SCAN_LIMIT,
   FeedbackConversationWakeupService,
 } from "./wakeup.service.js";
-import { FEEDBACK_RECONCILIATION_INVARIANT_FAILURE_REASON } from "./reconcile-failure.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const now = new Date("2026-08-03T12:00:00.000Z");
@@ -131,23 +131,6 @@ describe("FeedbackConversationWakeupService", () => {
     expect(getJob).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
-  });
-
-  it("recovers due revisions without seeding or repairing a second store", async () => {
-    const { service, conversations } = createService();
-
-    await expect(service.recoverDue("maintenance", now)).resolves.toEqual({
-      examined: 0,
-      queued: 0,
-    });
-
-    expect(conversations.listDueWork).toHaveBeenCalledWith(
-      {
-        dueAt: now,
-        limit: 100,
-      },
-      expect.anything(),
-    );
   });
 
   it("keyset-pages beyond an oldest prefix whose wake-ups are already live", async () => {

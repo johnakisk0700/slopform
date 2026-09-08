@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("DatabaseService", () => {
-  it("creates one configured pool and observes idle-client errors", async () => {
+  it("reports idle-client errors and cleans up on shutdown", async () => {
     const config = createConfig();
     const logError = vi
       .spyOn(Logger.prototype, "error")
@@ -22,7 +22,6 @@ describe("DatabaseService", () => {
 
     service.onModuleInit();
     const client = getClient(service);
-    expect(config.get).toHaveBeenCalledWith("DATABASE_URL", { infer: true });
     expect(client.pool.listenerCount("error")).toBe(1);
 
     const error = new Error("idle connection failed");

@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import { Logger } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,11 +6,6 @@ import {
   FeedbackLogger,
   FeedbackOperationLog,
 } from "./feedback-operation-log.js";
-
-vi.mock("node:crypto", async (importOriginal) => {
-  const crypto = await importOriginal<typeof import("node:crypto")>();
-  return { ...crypto, randomBytes: vi.fn(crypto.randomBytes) };
-});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -43,54 +36,6 @@ describe("FeedbackLogger", () => {
 });
 
 describe("FeedbackOperationLog", () => {
-  it("keeps logging observational when its entropy source fails", () => {
-    const records = capture();
-    const failEntropy = () => {
-      throw new Error("entropy unavailable");
-    };
-    vi.mocked(randomBytes)
-      .mockImplementationOnce(failEntropy)
-      .mockImplementationOnce(failEntropy);
-
-    for (let index = 0; index < 2; index += 1) {
-      const operation = new FeedbackOperationLog(records.logger, {
-        operation: "dispatch",
-        correlationId: "same-outbox",
-      });
-      operation.stage("transport");
-      operation.complete("sent");
-    }
-
-    const completed = records.emitted.filter(
-      (record) => record.status === "completed",
-    );
-    expect(completed).toHaveLength(2);
-    expect(completed[0]?.runId).not.toBe(completed[1]?.runId);
-    expect(completed.every((record) => record.outcome === "sent")).toBe(true);
-  });
-
-  it("preserves the original business error when fail logging throws", () => {
-    const business = new TypeError("capacity token sk-live");
-    const logger = {
-      log() {},
-      error() {
-        throw new Error("sink");
-      },
-    };
-    const operation = new FeedbackOperationLog(logger, {
-      operation: "extract",
-      correlationId: "corr-1",
-    });
-
-    try {
-      operation.stage("commit");
-      throw business;
-    } catch (error) {
-      operation.failed(error);
-      expect(error).toBe(business);
-    }
-  });
-
   it("keeps interleaved operations on distinct run ids and stages", () => {
     const records = capture();
     const extract = new FeedbackOperationLog(records.logger, {

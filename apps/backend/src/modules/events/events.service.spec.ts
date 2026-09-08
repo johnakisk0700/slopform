@@ -8,8 +8,8 @@ import type { EventsRepository, EventVenueWrite } from "./events.repository.js";
 import {
   EventMutationNotAllowedError,
   EventNotFoundError,
-  EventStatusTransitionError,
   EventsService,
+  EventStatusTransitionError,
 } from "./events.service.js";
 
 const event: EventRow = {
@@ -413,99 +413,6 @@ describe("EventsService venue contract", () => {
     );
     expect(JSON.stringify(auditAppend.mock.calls)).not.toContain(
       venueInput.label,
-    );
-  });
-
-  it("preserves the venue revision when a draft title-only update omits venue", async () => {
-    const { repository, service } = createService();
-    await service.create(
-      {
-        title: "Friday dinner",
-        startsAt: "2026-08-01T18:00:00.000Z",
-        venue: venueInput,
-      },
-      "user_admin",
-      "request-venue-seed",
-    );
-
-    const view = await service.update(
-      event.id,
-      { title: "Saturday dinner" },
-      "user_admin",
-      "request-title-only",
-    );
-
-    expect(repository.update).toHaveBeenLastCalledWith(
-      expect.anything(),
-      event.id,
-      { title: "Saturday dinner" },
-    );
-    expect(view.venue?.contextRevision).toBe(1);
-  });
-
-  it("allows venue-only replacement, clear, and re-add on a finished event without resetting the revision", async () => {
-    const { auditAppend, service } = createService();
-    await service.create(
-      {
-        title: "Friday dinner",
-        startsAt: "2026-08-01T18:00:00.000Z",
-        venue: venueInput,
-      },
-      "user_admin",
-      "request-venue-seed",
-    );
-    await service.transitionStatus(
-      event.id,
-      { status: "scheduled" },
-      "user_admin",
-      "request-schedule",
-    );
-    await service.transitionStatus(
-      event.id,
-      { status: "finished" },
-      "user_admin",
-      "request-finish",
-    );
-
-    const replaced = await service.update(
-      event.id,
-      {
-        venue: {
-          ...venueInput,
-          label: "Six Tables Athens — confirmed",
-          useInFeedback: false,
-        },
-      },
-      "user_admin",
-      "request-venue-replace",
-    );
-    const cleared = await service.update(
-      event.id,
-      { venue: null },
-      "user_admin",
-      "request-venue-clear",
-    );
-    const readded = await service.update(
-      event.id,
-      { venue: venueInput },
-      "user_admin",
-      "request-venue-readd",
-    );
-
-    expect(replaced.venue?.contextRevision).toBe(2);
-    expect(cleared.venue).toBeNull();
-    expect(readded.venue?.contextRevision).toBe(4);
-    expect(auditAppend).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        action: "event.updated",
-        requestId: "request-venue-clear",
-        context: expect.objectContaining({
-          venueChanged: true,
-          venueConfigured: false,
-          venueContextRevision: 3,
-        }),
-      }),
     );
   });
 

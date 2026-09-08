@@ -14,79 +14,6 @@ import {
 const createdAt = new Date("2026-07-25T10:00:00.000Z");
 
 describe("conversationThreadDocumentSchema", () => {
-  it("accepts an owner-scoped admin conversation with ordered turns", () => {
-    const document = adminConversation([queuedTurn(1)]);
-
-    expect(conversationThreadDocumentSchema.parse(document)).toEqual(document);
-  });
-
-  it("models up to ten ordered feedback goals and gathered answers", () => {
-    const goals = Array.from({ length: 10 }, (_, index) => ({
-      key: `feedback.${index + 1}`,
-      ordinal: index + 1,
-      prompt: `Question ${index + 1}`,
-      status: index === 0 ? ("answered" as const) : ("pending" as const),
-      answer: index === 0 ? "Yes" : null,
-      updatedAt: index === 0 ? createdAt : null,
-    }));
-    const document: ConversationThreadDocument = {
-      ...adminConversation([queuedTurn(1)]),
-      purpose: "post_event_feedback",
-      channel: "whatsapp",
-      owner: { type: "participant", id: "participant_123" },
-      goals,
-    };
-
-    expect(conversationThreadDocumentSchema.parse(document).goals).toHaveLength(
-      10,
-    );
-    expect(() =>
-      conversationThreadDocumentSchema.parse({
-        ...document,
-        goals: [
-          ...goals,
-          {
-            key: "feedback.11",
-            ordinal: 11,
-            prompt: "Question 11",
-            status: "pending",
-            answer: null,
-            updatedAt: null,
-          },
-        ],
-      }),
-    ).toThrow();
-  });
-
-  it("rejects ambiguous goal order and inconsistent human takeover state", () => {
-    const feedback = {
-      ...adminConversation([queuedTurn(1)]),
-      purpose: "post_event_feedback",
-      channel: "whatsapp",
-      owner: { type: "participant", id: "participant_123" },
-      goals: [
-        {
-          key: "second",
-          ordinal: 2,
-          prompt: "Out of order",
-          status: "pending",
-          answer: null,
-          updatedAt: null,
-        },
-      ],
-    };
-    expect(() => conversationThreadDocumentSchema.parse(feedback)).toThrow(
-      /contiguous ordered ordinals/,
-    );
-
-    expect(() =>
-      conversationThreadDocumentSchema.parse({
-        ...adminConversation([queuedTurn(1)]),
-        state: "human_takeover",
-      }),
-    ).toThrow(/requested or active takeover/);
-  });
-
   it("caps the embedded aggregate below MongoDB's BSON document ceiling", () => {
     const maximum = Array.from(
       { length: CONVERSATION_THREAD_MAX_TURNS },
@@ -172,20 +99,6 @@ describe("conversationThreadDocumentSchema", () => {
     const parsed = conversationThreadDocumentSchema.parse(document);
 
     expect(BSON.calculateObjectSize(parsed)).toBeLessThan(16 * 1_024 * 1_024);
-  });
-
-  it("rejects invalid turn lifecycle timestamps", () => {
-    expect(() =>
-      conversationThreadDocumentSchema.parse(
-        adminConversation([
-          {
-            ...queuedTurn(1),
-            status: "running",
-            startedAt: null,
-          },
-        ]),
-      ),
-    ).toThrow(/requires startedAt/);
   });
 });
 

@@ -186,7 +186,7 @@ vectors, provider response, credential or Python stderr is logged. Queue and
 recovery warnings are observations; they never authorize writes.
 
 Focused suites cover provider request/response validation, actual subprocess
-completion/cancellation/reaping/overflow, HTTP 401/403/202 and module composition.
+completion/cancellation/reaping/overflow and HTTP 401/403/202 boundaries.
 The opt-in `FEEDBACK_POSTGRES_TEST_URL` suite applies migrations only to an
 explicitly disposable database and verifies concurrent idempotency, deployment
 capacity, stale writes, result rollback, cache preservation and lifetime budgets.

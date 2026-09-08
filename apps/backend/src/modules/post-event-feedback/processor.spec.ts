@@ -4,13 +4,8 @@ import { UnrecoverableError } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
-import { PostEventFeedbackIngressNotFoundError } from "./ingress/materialize.service.js";
 import type { PostEventFeedbackMaterializationCoordinator } from "./ingress/materialization-coordinator.service.js";
-import type { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
-import {
-  FEEDBACK_WORKER_CONCURRENCY,
-  PostEventFeedbackProcessor,
-} from "./processor.js";
+import { PostEventFeedbackIngressNotFoundError } from "./ingress/materialize.service.js";
 import {
   createFeedbackDeliverJobId,
   createFeedbackMaterializeJobId,
@@ -19,6 +14,8 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./jobs.schemas.js";
+import { PostEventFeedbackProcessor } from "./processor.js";
+import type { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
@@ -32,23 +29,6 @@ const validData = {
 describe("PostEventFeedbackProcessor", () => {
   beforeAll(() => {
     Logger.overrideLogger(false);
-  });
-
-  it("keeps the documented per-process ordering limit explicit", () => {
-    expect(FEEDBACK_WORKER_CONCURRENCY).toBe(10);
-  });
-
-  it("materializes a valid job through the durable consumer", async () => {
-    const materializer = {
-      materialize: vi
-        .fn()
-        .mockResolvedValue({ outcome: "inbound_materialized", conversationId }),
-    };
-    const processor = createProcessor(materializer);
-
-    await processor.process(createJob(validData));
-
-    expect(materializer.materialize).toHaveBeenCalledWith(validData);
   });
 
   it("does not retry a payload that cannot become valid", async () => {

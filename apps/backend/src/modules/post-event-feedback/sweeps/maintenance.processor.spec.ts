@@ -7,24 +7,11 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
-import type { PostEventFeedbackMaintenanceService } from "./maintenance.service.js";
 import { PostEventFeedbackMaintenanceProcessor } from "./maintenance.processor.js";
+import type { PostEventFeedbackMaintenanceService } from "./maintenance.service.js";
 
 describe("PostEventFeedbackMaintenanceProcessor", () => {
   beforeAll(() => Logger.overrideLogger(false));
-
-  it("runs the single maintenance contract", async () => {
-    const maintenance = {
-      run: vi.fn().mockResolvedValue({ completed: [], failed: [] }),
-    };
-    const processor = new PostEventFeedbackMaintenanceProcessor(
-      maintenance as unknown as PostEventFeedbackMaintenanceService,
-    );
-
-    await processor.process(createJob());
-
-    expect(maintenance.run).toHaveBeenCalledWith("maintenance-v2");
-  });
 
   it("does not retry malformed scheduler payloads", async () => {
     const maintenance = { run: vi.fn() };

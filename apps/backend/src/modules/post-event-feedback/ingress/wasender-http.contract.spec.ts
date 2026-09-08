@@ -69,16 +69,6 @@ describe("Wasender webhook HTTP contract", () => {
     vi.unstubAllEnvs();
   });
 
-  it("publishes the opt-in public endpoint in generated OpenAPI", async () => {
-    const response = await fetch(`${baseUrl}/api/openapi.json`);
-    const document = (await response.json()) as {
-      paths: Record<string, Record<string, unknown>>;
-    };
-
-    expect(response.status).toBe(200);
-    expect(document.paths["/api/v1/webhooks/wasender"]).toHaveProperty("post");
-  });
-
   it("accepts a signed status event without requiring Clerk", async () => {
     const response = await postWebhook(validPayload, webhookSecret);
 

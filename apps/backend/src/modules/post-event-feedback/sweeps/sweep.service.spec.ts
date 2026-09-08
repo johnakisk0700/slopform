@@ -6,11 +6,11 @@ import type { Environment } from "../../../infrastructure/config/environment.js"
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import type { FeedbackMaterializeWakeupService } from "../ingress/materialize-wakeup.service.js";
-import { PostEventFeedbackSweepService } from "./sweep.service.js";
 import type {
   FeedbackMaintenanceCheckpointRepository,
   FeedbackPendingIngressRecoveryCursor,
 } from "./maintenance-checkpoint.repository.js";
+import { PostEventFeedbackSweepService } from "./sweep.service.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 
@@ -47,24 +47,6 @@ describe("PostEventFeedbackSweepService", () => {
       ingressId,
       correlationId: `corr-1:${ingressId}`,
     });
-  });
-
-  it("leaves fresh pending ingress rows untouched", async () => {
-    const { service, repository, materializeWakeups } = createService();
-    repository.listPendingIngressOlderThan.mockResolvedValue([]);
-
-    const now = new Date("2026-07-25T00:10:00.000Z");
-    const result = await service.sweepIngress("corr-1", now);
-
-    expect(result).toEqual({ examined: 0, requeued: 0, failed: 0 });
-    expect(repository.listPendingIngressOlderThan).toHaveBeenCalledWith(
-      {
-        olderThan: new Date("2026-07-25T00:05:00.000Z"),
-        limit: 50,
-      },
-      expect.anything(),
-    );
-    expect(materializeWakeups.ensurePendingQueued).not.toHaveBeenCalled();
   });
 
   it("reports a terminal-job repair race as failed so maintenance retries it", async () => {

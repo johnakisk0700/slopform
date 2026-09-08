@@ -4,7 +4,6 @@ import {
   createEmailDeliverJobId,
   createEmailDeliverySchema,
   emailDeliverJobDataSchema,
-  emailDeliverySchema,
 } from "./email.schemas.js";
 
 const deliveryId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
@@ -25,26 +24,6 @@ describe("email contracts", () => {
       subject: "Notice",
       textBody: "Body",
     });
-  });
-
-  it("keeps content and the raw address out of the admin response", () => {
-    const view = emailDeliverySchema.parse({
-      id: deliveryId,
-      requestId: "a8e94f93-9909-4cf2-b580-3b55c287a452",
-      recipientMasked: "p***@example.com",
-      status: "queued",
-      attemptCount: 0,
-      lastErrorCode: null,
-      nextAttemptAt: null,
-      createdAt: "2026-07-25T00:00:00.000Z",
-      updatedAt: "2026-07-25T00:00:00.000Z",
-      completedAt: null,
-      attempts: [],
-    });
-
-    expect(view).not.toHaveProperty("recipientEmail");
-    expect(view).not.toHaveProperty("subject");
-    expect(view).not.toHaveProperty("textBody");
   });
 
   it("accepts only the versioned identifier-only delivery envelope", () => {

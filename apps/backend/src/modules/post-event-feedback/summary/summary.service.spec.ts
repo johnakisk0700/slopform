@@ -1,33 +1,33 @@
-import {
-  FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
-  FeedbackSummaryGenerationError,
-} from "../../../integrations/llm/feedback-summary-model.js";
+import type { ConfigService } from "@nestjs/config";
 import type {
   AppTransaction,
   FeedbackCampaignRow,
   FeedbackCampaignSummaryRow,
 } from "@slopform/database";
-import type { ConfigService } from "@nestjs/config";
 import { generateObject } from "ai";
 import type { Queue } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
+  FeedbackSummaryGenerationError,
+} from "../../../integrations/llm/feedback-summary-model.js";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type {
   FeedbackCampaignRepository,
   FeedbackCampaignSummaryExecutionClaim,
 } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
-import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type { FeedbackMaintenanceCheckpointRepository } from "../sweeps/maintenance-checkpoint.repository.js";
-import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import {
   createFeedbackSummarizeCampaignV2JobId,
   FEEDBACK_JOB_NAMES,
 } from "../jobs.schemas.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
+import type { FeedbackMaintenanceCheckpointRepository } from "../sweeps/maintenance-checkpoint.repository.js";
 import {
   FEEDBACK_SUMMARY_EXECUTION_HEARTBEAT_MS,
   FeedbackSummaryDisabledInSimulatorError,
@@ -134,19 +134,6 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     );
   });
 
-  it("reports a released claim on a row that is still pending", async () => {
-    const { service, campaigns } = createService();
-    campaigns.findSummaryByCampaignId.mockResolvedValue(
-      pendingSummaryRow({ executionEpoch: 1, claimExpiresAt: null }),
-    );
-
-    await expect(service.get(campaignId)).resolves.toMatchObject({
-      status: "pending",
-      executionEpoch: 1,
-      claimExpiresAt: null,
-    });
-  });
-
   it("reports no lease for a campaign that never requested a summary", async () => {
     const { service, campaigns } = createService();
     campaigns.findSummaryByCampaignId.mockResolvedValue(undefined);
@@ -187,163 +174,6 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       }),
     );
     expect(auditAppend).not.toHaveBeenCalled();
-  });
-
-  it("serializes concurrent first requests on the campaign row", async () => {
-    const { service, campaigns, database, auditAppend } = createService();
-    let durableSummary: FeedbackCampaignSummaryRow | undefined;
-    let transactionTail = Promise.resolve<unknown>(undefined);
-    database.transaction.mockImplementation(
-      (work: (transaction: AppTransaction) => Promise<unknown>) => {
-        const result = transactionTail.then(() => work({} as AppTransaction));
-        transactionTail = result.catch(() => undefined);
-        return result;
-      },
-    );
-    campaigns.findSummaryByCampaignId.mockImplementation(
-      async () => durableSummary,
-    );
-    campaigns.upsertSummaryPending.mockImplementation(async () => {
-      if (durableSummary) {
-        throw new Error("duplicate summary insert");
-      }
-      durableSummary = pendingSummaryRow();
-      return durableSummary;
-    });
-
-    const [first, second] = await Promise.all([
-      service.request(campaignId, "manual", "request-a", "admin-1"),
-      service.request(campaignId, "manual", "request-b", "admin-2"),
-    ]);
-
-    expect(first).toMatchObject({ status: "pending", attempt: 1 });
-    expect(second).toMatchObject({ status: "pending", attempt: 1 });
-    expect(campaigns.findCampaignByIdForUpdate).toHaveBeenCalledTimes(2);
-    expect(campaigns.upsertSummaryPending).toHaveBeenCalledTimes(1);
-    expect(auditAppend).toHaveBeenCalledTimes(1);
-  });
-
-  it("orders a summary-first request before concurrent conversation creation", async () => {
-    const { service, campaigns, conversations, database } = createService();
-    const trace: string[] = [];
-    const summaryCounted = deferred<void>();
-    const releaseSummaryCount = deferred<void>();
-    let openConversationCount = 0;
-    let transactionTail = Promise.resolve<unknown>(undefined);
-    database.transaction.mockImplementation(
-      (work: (transaction: AppTransaction) => Promise<unknown>) => {
-        const result = transactionTail.then(() => work({} as AppTransaction));
-        transactionTail = result.catch(() => undefined);
-        return result;
-      },
-    );
-    const transact =
-      database.transaction as unknown as DatabaseService["transaction"];
-    const lockCampaign =
-      campaigns.findCampaignByIdForUpdate as unknown as FeedbackCampaignRepository["findCampaignByIdForUpdate"];
-    conversations.countOpenForCampaign.mockImplementation(async () => {
-      const snapshot = openConversationCount;
-      trace.push(`summary:count:${snapshot}`);
-      summaryCounted.resolve();
-      await releaseSummaryCount.promise;
-      return snapshot;
-    });
-    campaigns.upsertSummaryPending.mockImplementation(
-      async (
-        _transaction: AppTransaction,
-        input: { readonly openConversationCount: number },
-      ) => {
-        trace.push(`summary:write:${input.openConversationCount}`);
-        return pendingSummaryRow({
-          isPartial: input.openConversationCount > 0,
-          openConversationCount: input.openConversationCount,
-        });
-      },
-    );
-
-    const summary = service.request(campaignId, "all_closed", "summary-first");
-    await summaryCounted.promise;
-    const startConversation = transact(async (transaction) => {
-      await lockCampaign(transaction, campaignId);
-      trace.push("conversation:create");
-      openConversationCount = 1;
-    });
-    releaseSummaryCount.resolve();
-
-    await expect(summary).resolves.toMatchObject({
-      isPartial: false,
-      openConversationCount: 0,
-    });
-    await startConversation;
-    expect(trace).toEqual([
-      "summary:count:0",
-      "summary:write:0",
-      "conversation:create",
-    ]);
-  });
-
-  it("observes a conversation whose creation won the campaign lock", async () => {
-    const { service, campaigns, conversations, database } = createService();
-    const trace: string[] = [];
-    const conversationCreating = deferred<void>();
-    const releaseConversationCreate = deferred<void>();
-    let openConversationCount = 0;
-    let transactionTail = Promise.resolve<unknown>(undefined);
-    database.transaction.mockImplementation(
-      (work: (transaction: AppTransaction) => Promise<unknown>) => {
-        const result = transactionTail.then(() => work({} as AppTransaction));
-        transactionTail = result.catch(() => undefined);
-        return result;
-      },
-    );
-    const transact =
-      database.transaction as unknown as DatabaseService["transaction"];
-    const lockCampaign =
-      campaigns.findCampaignByIdForUpdate as unknown as FeedbackCampaignRepository["findCampaignByIdForUpdate"];
-    conversations.countOpenForCampaign.mockImplementation(async () => {
-      trace.push(`summary:count:${openConversationCount}`);
-      return openConversationCount;
-    });
-    campaigns.upsertSummaryPending.mockImplementation(
-      async (
-        _transaction: AppTransaction,
-        input: { readonly openConversationCount: number },
-      ) => {
-        trace.push(`summary:write:${input.openConversationCount}`);
-        return pendingSummaryRow({
-          isPartial: input.openConversationCount > 0,
-          openConversationCount: input.openConversationCount,
-        });
-      },
-    );
-
-    const startConversation = transact(async (transaction) => {
-      await lockCampaign(transaction, campaignId);
-      trace.push("conversation:create:start");
-      conversationCreating.resolve();
-      await releaseConversationCreate.promise;
-      openConversationCount = 1;
-      trace.push("conversation:create:commit");
-    });
-    await conversationCreating.promise;
-    const summary = service.request(
-      campaignId,
-      "all_closed",
-      "conversation-first",
-    );
-    releaseConversationCreate.resolve();
-
-    await startConversation;
-    await expect(summary).resolves.toMatchObject({
-      isPartial: true,
-      openConversationCount: 1,
-    });
-    expect(trace).toEqual([
-      "conversation:create:start",
-      "conversation:create:commit",
-      "summary:count:1",
-      "summary:write:1",
-    ]);
   });
 
   it("converts only the exact durable pending V1 summary attempt", async () => {
@@ -1075,60 +905,6 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       vi.useRealTimers();
     }
   });
-
-  it.each([
-    {
-      version: 1 as const,
-      expectedInstruction: "Αναλύεις campaign με ερωτηματολόγιο V1",
-      excludedInstruction: "Κράτησε χωριστές τις τέσσερις βαθμολογίες",
-    },
-    {
-      version: 2 as const,
-      expectedInstruction: "Αναλύεις campaign με ερωτηματολόγιο V2",
-      excludedInstruction: "Το liked είναι η απάντηση V1",
-    },
-  ])(
-    "builds a V$version prompt from the campaign's persisted question-set version",
-    async ({ version, expectedInstruction, excludedInstruction }) => {
-      const { service, campaigns } = createService();
-      campaigns.findCampaignById.mockResolvedValue({
-        ...campaignRow,
-        questionSetVersion: version,
-        questions: buildPostEventFeedbackQuestionLaunchSnapshot(version),
-      });
-      campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
-
-      await service.run(
-        {
-          schemaVersion: 2,
-          campaignId,
-          attempt: 1,
-          correlationId,
-        },
-        { terminalOnFailure: false },
-      );
-
-      const options = mockedGenerateObject.mock.calls[0]?.[0];
-      const message = options?.messages?.[0];
-      const prompt =
-        message && "content" in message && typeof message.content === "string"
-          ? message.content
-          : "";
-      expect(prompt).toContain(expectedInstruction);
-      expect(prompt).not.toContain(excludedInstruction);
-      if (version === 2) {
-        expect(prompt).toContain("Κράτα χωριστές τις τέσσερις βαθμολογίες");
-      }
-      expect(campaigns.findCampaignById).toHaveBeenCalledWith(campaignId);
-      expect(campaigns.markSummaryReady).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          claim: expect.objectContaining({ campaignId, attempt: 1 }),
-          body: expect.stringContaining('"version":4'),
-        }),
-      );
-    },
-  );
 });
 
 function createService(

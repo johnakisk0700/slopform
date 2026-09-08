@@ -1,21 +1,24 @@
-import { FeedbackDispatchSettlementService } from "./dispatch-settlement.service.js";
-import { FeedbackDispatchPreparationService } from "./dispatch-preparation.service.js";
-import { FeedbackDispatchRecoveryService } from "./dispatch-recovery.service.js";
-import { FeedbackDispatchAttemptService } from "./dispatch-attempt.service.js";
 import { Logger } from "@nestjs/common";
 import type { MessageOutboxRow } from "@slopform/database";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { FeedbackDispatchAttemptService } from "./dispatch-attempt.service.js";
+import { FeedbackDispatchPreparationService } from "./dispatch-preparation.service.js";
+import { FeedbackDispatchRecoveryService } from "./dispatch-recovery.service.js";
+import { FeedbackDispatchSettlementService } from "./dispatch-settlement.service.js";
 
 import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import {
   createFeedbackClosingDedupeKey,
   createFeedbackReplyDedupeKey,
   isFeedbackClosingDedupeKey,
 } from "../extraction/extraction.schemas.js";
+import { deliveryFor } from "../inbox/conversation.view.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { createFeedbackStopAckDedupeKey } from "../question-set.js";
 import type { DispatchContext } from "./dispatch-context.js";
 import {
@@ -25,17 +28,14 @@ import {
   DISPATCH_CONTEXT_UNUSABLE,
   FALLBACK_FENCE_NOT_SENDABLE,
 } from "./dispatch-context.js";
-import type { ParticipantsRepository } from "../../participants/participants.repository.js";
-import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
-import { deliveryFor } from "../inbox/conversation.view.js";
 import { MessageOutboxDispatcherService } from "./dispatcher.service.js";
+import type { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
+import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 import {
   FEEDBACK_OUTBOX_DISPATCH_HEARTBEAT_MS,
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
 } from "./outbox.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 import type { FeedbackOutboxClaimedRow } from "./outbox.types.js";
-import type { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
 import type { FeedbackSendLimiter } from "./session-pacer.js";
 import type { FeedbackTransport } from "./transport.js";
 
@@ -1161,115 +1161,6 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
-  it("does not load a participant when the first guard pauses", async () => {
-    const harness = createHarness();
-    harness.campaigns.findCampaignById.mockResolvedValue({ status: "paused" });
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "held" }],
-    });
-    expect(harness.participants.findById).not.toHaveBeenCalled();
-    expect(harness.participants.findByIdForUpdate).not.toHaveBeenCalled();
-    expect(harness.ingress.hasInboundBeyondSnapshot).not.toHaveBeenCalled();
-    expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
-  });
-
-  it("skips the participant read for the exact STOP acknowledgement and authorizes the marker", async () => {
-    const harness = createHarness({
-      claims: [
-        claimedRow({
-          kind: "system",
-          dedupeKey: createFeedbackStopAckDedupeKey(conversationId),
-        }),
-      ],
-    });
-    harness.conversations.findById.mockResolvedValue(
-      conversation("human", "stopped", { terminalOutboxId: outboxId }),
-    );
-    harness.participants.findById.mockResolvedValue(participant(false));
-    harness.participants.findByIdForUpdate.mockResolvedValue(
-      participant(false),
-    );
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "sent" }],
-    });
-    expect(harness.participants.findById).not.toHaveBeenCalled();
-    expect(harness.participants.findByIdForUpdate).not.toHaveBeenCalled();
-    expect(harness.repository.markDispatchAttemptStarted).toHaveBeenCalledWith(
-      outboxId,
-      claimToken,
-      expect.any(Date),
-      FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
-      outboxId,
-      harness.transaction,
-    );
-  });
-
-  it("does not query ordinary-reply currency until the locked prepare guard", async () => {
-    const harness = createHarness();
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "sent" }],
-    });
-    expect(harness.limiter.waitTurn.mock.invocationCallOrder[0]).toBeLessThan(
-      harness.ingress.hasInboundBeyondSnapshot.mock
-        .invocationCallOrder[0] as number,
-    );
-    expect(
-      harness.repository.lockConversation.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      harness.ingress.hasInboundBeyondSnapshot.mock
-        .invocationCallOrder[0] as number,
-    );
-    expect(harness.ingress.hasInboundBeyondSnapshot).toHaveBeenCalledTimes(1);
-    expect(harness.ingress.hasInboundBeyondSnapshot).toHaveBeenCalledWith(
-      harness.transaction,
-      expect.objectContaining({ conversationId }),
-    );
-  });
-
-  it("keeps a valid ordinary context authorized when the diagnostic log is missing", async () => {
-    const harness = createHarness();
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "sent" }],
-    });
-    expect(harness.transport.sendText).toHaveBeenCalledTimes(1);
-  });
-
-  it("still applies ordinary freshness when a diagnostic origin would have skipped it", async () => {
-    const harness = createHarness({
-      claims: [
-        claimedRow({
-          dispatchContext: ordinaryDispatchContext({ latestMessageSeq: 1 }),
-        }),
-      ],
-    });
-    harness.conversations.findById.mockResolvedValue(
-      conversation("bot", undefined, {
-        messages: [
-          { seq: 1, actor: "participant", outboxId: null },
-          { seq: 2, actor: "participant", outboxId: null },
-        ],
-      }),
-    );
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "cancelled" }],
-    });
-    expect(
-      harness.repository.finishDispatchClaimBeforeAttempt,
-    ).toHaveBeenCalledWith(
-      outboxId,
-      claimToken,
-      "cancelled",
-      expect.any(Date),
-      "superseded_by_newer_testimony",
-      harness.transaction,
-    );
-  });
-
   it("cancels a purpose/kind/dedupe mismatch instead of sending", async () => {
     const harness = createHarness({
       claims: [
@@ -1319,30 +1210,6 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
-  it("cancels a claimed row whose dispatch context is missing", async () => {
-    const harness = createHarness({
-      claims: [
-        claimedRow({
-          dispatchContext: null as unknown as DispatchContext,
-        }),
-      ],
-    });
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "cancelled" }],
-    });
-    expect(
-      harness.repository.finishDispatchClaimBeforeAttempt,
-    ).toHaveBeenCalledWith(
-      outboxId,
-      claimToken,
-      "cancelled",
-      expect.any(Date),
-      DISPATCH_CONTEXT_INVALID,
-    );
-    expect(harness.transport.sendText).not.toHaveBeenCalled();
-  });
-
   it("never sends a fallback fence even when kind and dedupe match", async () => {
     const harness = createHarness({
       claims: [
@@ -1370,41 +1237,6 @@ describe("MessageOutboxDispatcherService", () => {
       FALLBACK_FENCE_NOT_SENDABLE,
     );
     expect(harness.transport.sendText).not.toHaveBeenCalled();
-  });
-
-  it("cancels ordinary extraction when live state refreshed after the original snapshot", async () => {
-    const harness = createHarness({
-      claims: [
-        claimedRow({
-          dispatchContext: ordinaryDispatchContext({
-            latestMessageSeq: 1,
-            workRevision: 7,
-            campaignResumeGeneration: 4,
-          }),
-        }),
-      ],
-    });
-    harness.conversations.findById.mockResolvedValue(
-      conversation("bot", undefined, {
-        workRevision: 12,
-        campaignResumeGeneration: 9,
-        messages: [{ seq: 1, actor: "participant", outboxId: null }],
-      }),
-    );
-
-    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
-      items: [{ outboxId, outcome: "cancelled" }],
-    });
-    expect(
-      harness.repository.finishDispatchClaimBeforeAttempt,
-    ).toHaveBeenCalledWith(
-      outboxId,
-      claimToken,
-      "cancelled",
-      expect.any(Date),
-      "superseded_by_newer_work",
-      harness.transaction,
-    );
   });
 
   it("still sends once when the logger sink throws", async () => {

@@ -22,9 +22,9 @@ import { ConversationPersistenceError } from "../conversations/conversation-pers
 import { POST_EVENT_FEEDBACK_SAFETY_CATEGORIES } from "./attention.js";
 import { FeedbackConversationExecutionFenceRepository } from "./extraction/execution-fence.repository.js";
 import {
+  deriveFeedbackConversationId,
   FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES,
   type FeedbackConversationMessage,
-  deriveFeedbackConversationId,
 } from "./post-event-feedback-conversation.document.js";
 import {
   FeedbackConversationCapacityError,
@@ -49,39 +49,6 @@ const eventId = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 
 // Explicit disposable database only; never use the application DATABASE_URL.
 const postgresTestUrl = process.env.FEEDBACK_POSTGRES_TEST_URL;
-
-describe("FeedbackConversationRepository", () => {
-  it("does not query when the extraction-accounting scope is empty", async () => {
-    const repository = createRepository(unavailableDatabase());
-    await expect(
-      repository.listExtractionAccountingForCampaigns([]),
-    ).resolves.toEqual([]);
-  });
-
-  it("does not query when the lifecycle-statistics page is empty", async () => {
-    const repository = createRepository(unavailableDatabase());
-    await expect(
-      repository.listLifecycleStatsForCampaigns([]),
-    ).resolves.toEqual([]);
-  });
-
-  it("does not query when the respondent id list is empty", async () => {
-    const repository = createRepository(unavailableDatabase());
-    await expect(repository.listRespondentsByIds([])).resolves.toEqual([]);
-  });
-
-  it("requires an idempotency key before touching storage", async () => {
-    const repository = createRepository(unavailableDatabase());
-    await expect(
-      repository.appendMessage(unavailableTransaction(), {
-        conversationId,
-        actor: "system",
-        text: "hello",
-        at: repliedAt,
-      }),
-    ).rejects.toBeInstanceOf(ConversationPersistenceError);
-  });
-});
 
 const describePostgres = postgresTestUrl ? describe : describe.skip;
 
@@ -1077,3 +1044,15 @@ async function largestTextLenWithPgUnderLimit(
   }
   return best;
 }
+
+it("requires an idempotency key before touching storage", async () => {
+  const repository = createRepository(unavailableDatabase());
+  await expect(
+    repository.appendMessage(unavailableTransaction(), {
+      conversationId,
+      actor: "system",
+      text: "hello",
+      at: repliedAt,
+    }),
+  ).rejects.toBeInstanceOf(ConversationPersistenceError);
+});

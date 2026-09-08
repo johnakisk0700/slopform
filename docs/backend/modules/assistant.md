@@ -242,7 +242,7 @@ a tool loop keeps the same slot across its sequential steps.
 Logs: queue/job/turn correlation and safe error categories — never prompts,
 answers, keys or provider bodies. Focused tests cover Mongo contracts,
 attempt CAS, conflicting terminals, cross-store replay, non-latest retry,
-history reconstruction, adapters, HTTP/OpenAPI, composition, terminal-event
+history reconstruction, adapters, HTTP/OpenAPI, terminal-event
 reconciliation, stale recovery and PG constraints. Clean PG migration
 verification runs twice.
 

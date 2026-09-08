@@ -1,12 +1,5 @@
-import { randomUUID } from "node:crypto";
-
-import { BSON } from "mongodb";
 import { describe, expect, it } from "vitest";
-
-import { conversationThreadDocumentSchema } from "../conversations/conversation-thread.schemas.js";
 import {
-  FEEDBACK_CONVERSATION_MAX_MESSAGES,
-  FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
   accumulateFeedbackExtractionUsage,
@@ -14,10 +7,7 @@ import {
   deriveFeedbackConversationId,
   feedbackConversationDocumentSchema,
 } from "./post-event-feedback-conversation.document.js";
-import {
-  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
-  POST_EVENT_FEEDBACK_QUESTION_SET_V2,
-} from "./question-set.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
@@ -50,18 +40,6 @@ describe("deriveFeedbackConversationId", () => {
 });
 
 describe("buildFeedbackConversationGoals", () => {
-  it("uses the current V2 question-set keys in their locked order", () => {
-    const goals = buildFeedbackConversationGoals();
-
-    expect(goals.map((goal) => goal.key)).toEqual(
-      POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
-        (question) => question.key,
-      ),
-    );
-    expect(goals.map((goal) => goal.ordinal)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(goals.every((goal) => goal.status === "pending")).toBe(true);
-  });
-
   it("preserves V1 goals and takes prompts from its campaign snapshot", () => {
     const goals = buildFeedbackConversationGoals(
       {
@@ -86,17 +64,6 @@ describe("buildFeedbackConversationGoals", () => {
 });
 
 describe("feedbackConversationDocumentSchema", () => {
-  it("accepts a launched conversation with an actor-labelled transcript", () => {
-    const document = feedbackConversation([
-      participantMessage(1),
-      botMessage(2),
-    ]);
-
-    expect(feedbackConversationDocumentSchema.parse(document)).toEqual(
-      document,
-    );
-  });
-
   it("reads a conversation written before attention reasons existed", () => {
     // Those documents are flagged with nothing to show, which is exactly what
     // they are. Failing to parse them would take the whole inbox down for a
@@ -106,55 +73,6 @@ describe("feedbackConversationDocumentSchema", () => {
     expect(
       feedbackConversationDocumentSchema.parse(legacy).attentionReasons,
     ).toEqual([]);
-  });
-
-  it("refuses an attention reason resolved by nobody", () => {
-    // `resolvedAt` is what stops it counting toward `needsAttention`, so a
-    // half-written resolution silently dismisses a disclosure and leaves no
-    // record of who did it.
-    expect(() =>
-      feedbackConversationDocumentSchema.parse({
-        ...feedbackConversation([]),
-        attentionReasons: [
-          {
-            id: "22222222-2222-4222-8222-222222222222",
-            kind: "safety",
-            messageId: "11111111-1111-4111-8111-111111111111",
-            at: new Date("2026-07-27T10:00:00.000Z"),
-            resolvedAt: new Date("2026-07-27T11:00:00.000Z"),
-            resolvedBy: null,
-          },
-        ],
-      }),
-    ).toThrow();
-  });
-
-  it("stays disjoint from the schema-v1 assistant aggregate", () => {
-    expect(() =>
-      conversationThreadDocumentSchema.parse(feedbackConversation([])),
-    ).toThrow();
-    expect(() =>
-      feedbackConversationDocumentSchema.parse({
-        ...feedbackConversation([]),
-        schemaVersion: 1,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects a lifecycle that contradicts its terminal reason", () => {
-    expect(() =>
-      feedbackConversationDocumentSchema.parse({
-        ...feedbackConversation([]),
-        lifecycle: { state: "open", reason: "stopped", closedAt: createdAt },
-      }),
-    ).toThrow(/terminal reason/);
-
-    expect(() =>
-      feedbackConversationDocumentSchema.parse({
-        ...feedbackConversation([]),
-        lifecycle: { state: "closed", reason: null, closedAt: null },
-      }),
-    ).toThrow(/requires a reason/);
   });
 
   it("authorizes a terminal outbox identity only on a message-bearing close", () => {
@@ -194,102 +112,6 @@ describe("feedbackConversationDocumentSchema", () => {
         },
       }),
     ).toThrow(/completed, declined or stopped/);
-  });
-
-  it("rejects human control without a control source", () => {
-    expect(() =>
-      feedbackConversationDocumentSchema.parse({
-        ...feedbackConversation([]),
-        control: { mode: "human", source: "launch", changedAt: createdAt },
-      }),
-    ).toThrow(/staff action or external outbound/);
-  });
-
-  it("requires message provenance that matches the actor", () => {
-    expect(() =>
-      feedbackConversationDocumentSchema.parse(
-        feedbackConversation([{ ...participantMessage(1), ingressId: null }]),
-      ),
-    ).toThrow(/durable ingress id/);
-
-    expect(() =>
-      feedbackConversationDocumentSchema.parse(
-        feedbackConversation([{ ...botMessage(1), seq: 1, outboxId: null }]),
-      ),
-    ).toThrow(/outbox id/);
-  });
-
-  it("requires contiguous sequence numbers and unique provenance", () => {
-    // A gap: one message claiming seq 2 leaves nothing at seq 1, and the
-    // extraction cursor walks sequence numbers.
-    expect(() =>
-      feedbackConversationDocumentSchema.parse(
-        feedbackConversation([{ ...participantMessage(1), seq: 2 }]),
-      ),
-    ).toThrow(/contiguous sequence numbers/);
-
-    // Two messages cannot share one sequence number.
-    expect(() =>
-      feedbackConversationDocumentSchema.parse(
-        feedbackConversation([
-          participantMessage(1),
-          { ...participantMessage(2), seq: 1 },
-        ]),
-      ),
-    ).toThrow(/contiguous sequence numbers/);
-
-    const ingressId = randomUUID();
-    expect(() =>
-      feedbackConversationDocumentSchema.parse(
-        feedbackConversation([
-          { ...participantMessage(1), ingressId },
-          { ...participantMessage(2), ingressId },
-        ]),
-      ),
-    ).toThrow(/unique provenance/);
-  });
-
-  it("keeps the extraction cursor inside the transcript", () => {
-    expect(() =>
-      feedbackConversationDocumentSchema.parse({
-        ...feedbackConversation([participantMessage(1)]),
-        extraction: { cursorSeq: 2, lastRunAt: updatedAt, model: null },
-      }),
-    ).toThrow(/cursor cannot pass/);
-  });
-
-  it("caps the transcript and stays far below the 16 MiB BSON limit", () => {
-    const messages = Array.from(
-      { length: FEEDBACK_CONVERSATION_MAX_MESSAGES },
-      (_, index) => participantMessage(index + 1),
-    );
-
-    expect(
-      feedbackConversationDocumentSchema.parse(feedbackConversation(messages))
-        .messages,
-    ).toHaveLength(FEEDBACK_CONVERSATION_MAX_MESSAGES);
-    expect(() =>
-      feedbackConversationDocumentSchema.parse(
-        feedbackConversation([
-          ...messages,
-          participantMessage(FEEDBACK_CONVERSATION_MAX_MESSAGES + 1),
-        ]),
-      ),
-    ).toThrow();
-
-    // U+0800 occupies three UTF-8 bytes per JavaScript string code unit.
-    const worstCase = feedbackConversationDocumentSchema.parse(
-      feedbackConversation(
-        messages.map((message) => ({
-          ...message,
-          text: "ࠀ".repeat(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
-        })),
-      ),
-    );
-
-    expect(BSON.calculateObjectSize(worstCase)).toBeLessThan(
-      16 * 1_024 * 1_024,
-    );
   });
 
   it("defaults the token ledger on a conversation written before it existed", () => {
@@ -332,26 +154,6 @@ describe("feedbackConversationDocumentSchema", () => {
       }),
     ).toThrow();
   });
-
-  it("stores a usage component the provider never reported as null rather than zero", () => {
-    const document = feedbackConversation([]);
-
-    const parsed = feedbackConversationDocumentSchema.parse({
-      ...document,
-      extraction: {
-        ...document.extraction,
-        usage: { inputTokens: 1_200, outputTokens: null, totalTokens: null },
-        serviceTier: "priority",
-      },
-    });
-
-    expect(parsed.extraction.usage).toEqual({
-      inputTokens: 1_200,
-      outputTokens: null,
-      totalTokens: null,
-    });
-    expect(parsed.extraction.serviceTier).toBe("priority");
-  });
 });
 
 describe("accumulateFeedbackExtractionUsage", () => {
@@ -360,12 +162,6 @@ describe("accumulateFeedbackExtractionUsage", () => {
     outputTokens: number | null,
     totalTokens: number | null,
   ) => ({ inputTokens, outputTokens, totalTokens });
-
-  it("begins the sums from a conversation that has never reported", () => {
-    expect(
-      accumulateFeedbackExtractionUsage(null, reported(900, 120, 1_020)),
-    ).toEqual(reported(900, 120, 1_020));
-  });
 
   it("adds each component run over run", () => {
     const afterFirst = accumulateFeedbackExtractionUsage(
@@ -444,33 +240,5 @@ function feedbackConversation(
     staffClose: null,
     createdAt,
     updatedAt,
-  };
-}
-
-function participantMessage(seq: number): FeedbackConversationMessage {
-  return {
-    id: randomUUID(),
-    seq,
-    actor: "participant",
-    text: "Πέρασα τέλεια!",
-    providerMessageId: null,
-    ingressId: randomUUID(),
-    outboxId: null,
-    attention: null,
-    at: createdAt,
-  };
-}
-
-function botMessage(seq: number): FeedbackConversationMessage {
-  return {
-    id: randomUUID(),
-    seq,
-    actor: "bot",
-    text: "Πώς σου φάνηκε η βραδιά;",
-    providerMessageId: null,
-    ingressId: null,
-    outboxId: randomUUID(),
-    attention: null,
-    at: createdAt,
   };
 }

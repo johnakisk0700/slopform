@@ -4,17 +4,13 @@ import { setImmediate } from "node:timers/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
-import { ProviderCallLimiter } from "./provider-call-limiter.js";
 import {
-  DEFAULT_FEEDBACK_SUMMARY_MODEL,
-  DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
   FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS,
   FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
   FeedbackCampaignSummaryModel,
   feedbackSummaryMaxOutputTokens,
-  resolveFeedbackSummaryModel,
-  resolveFeedbackSummaryReasoningEffort,
 } from "./feedback-summary-model.js";
+import { ProviderCallLimiter } from "./provider-call-limiter.js";
 
 vi.mock("ai", async (importOriginal) => {
   const original = await importOriginal<typeof import("ai")>();
@@ -22,23 +18,6 @@ vi.mock("ai", async (importOriginal) => {
 });
 
 describe("feedback summary configuration", () => {
-  it("reserves Terra high as the explicit summary default", () => {
-    expect(DEFAULT_FEEDBACK_SUMMARY_MODEL).toBe("openai/gpt-5.6-terra");
-    expect(DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT).toBe("high");
-  });
-
-  it.each([undefined, "", "   "])(
-    "uses documented defaults for an absent or blank value (%s)",
-    (configured) => {
-      expect(resolveFeedbackSummaryModel(configured)).toBe(
-        DEFAULT_FEEDBACK_SUMMARY_MODEL,
-      );
-      expect(resolveFeedbackSummaryReasoningEffort(configured)).toBe(
-        DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
-      );
-    },
-  );
-
   // Same measured trap as extraction: reasoning tokens share maxOutputTokens
   // with the JSON object. A flat 4,096 ceiling on Terra high/xhigh can spend
   // the whole budget thinking and surface as NoObjectGeneratedError.

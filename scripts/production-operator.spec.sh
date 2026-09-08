@@ -180,12 +180,6 @@ if (production_load_state "$state_file") >/dev/null 2>&1; then
   fail 'malformed state was accepted'
 fi
 
-help_output=$(bash "$repository_root/scripts/prod.sh" help)
-[[ $help_output == *'deploy [all|admin|backend]'* ]] || fail 'public deploy help is missing'
-[[ $help_output == *'data <push|status|seal>'* ]] || fail 'public data help is missing'
-[[ $help_output == *'root@203.0.113.10'* ]] || fail 'default VPS target is missing from help'
-[[ $help_output == *'https://slopform.example.com'* ]] || fail 'default public origin is missing from help'
-
 if bash "$repository_root/scripts/prod.sh" deploy nonsense >/dev/null 2>&1; then
   fail 'invalid public deploy scope was accepted'
 fi

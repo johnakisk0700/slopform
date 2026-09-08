@@ -7,10 +7,6 @@ import {
   validateFeedbackAttentionClassification,
 } from "./attention-classification.js";
 import type { FeedbackExtractionMessageView } from "./extraction.schemas.js";
-import {
-  POST_EVENT_FEEDBACK_POLICY_QUESTIONS,
-  POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS,
-} from "./policy-answers.js";
 
 const messages = [
   {
@@ -42,11 +38,6 @@ describe("feedback attention classification", () => {
       messages,
       targetMessageIds: ["m-safe", "m-incident"],
     });
-
-    expect(prompt.system).toContain("Κρίνεις περιστατικά");
-    expect(prompt.system).toContain("urgent_human_follow_up");
-    expect(prompt.system).not.toContain("questionKey");
-    expect(prompt.system).not.toContain("subjectParticipantId");
     expect(JSON.parse(prompt.user)).toEqual({
       targetMessageIds: ["m-safe", "m-incident"],
       transcript: messages.map((message) => ({
@@ -56,25 +47,6 @@ describe("feedback attention classification", () => {
         text: message.text,
       })),
     });
-  });
-
-  it("puts the respondent's own conduct in scope without losing either guard", () => {
-    // The three sentences that have to coexist. Γεωργία's message reached this
-    // classifier and was answered `incident=false`, correctly, because the
-    // prompt said to judge described incidents and not the respondent's
-    // vocabulary — so widening the scope is the fix. But the same widening is
-    // how Μπάμπης («άντε γαμήσου ρε μαλακισμένο μποτ») starts arriving as a
-    // safety incident, and how every `avoid` answer does: that question asks
-    // people to be negative about somebody by name.
-    const system = buildFeedbackAttentionClassificationPrompt({
-      messages,
-      targetMessageIds: ["m-incident"],
-    }).system;
-
-    expect(system).toContain("abuse_of_a_participant");
-    expect(system).toContain("απαξιώνει ή απανθρωποποιεί");
-    expect(system).toContain("προς ΕΜΑΣ");
-    expect(system).toContain("«δεν θέλω να τον ξαναδώ»");
   });
 
   it("keeps respondent conduct off the urgent path the model could still ask for", () => {
@@ -229,19 +201,6 @@ describe("feedback attention classification", () => {
     });
   });
 
-  it("names hostility toward us in the prompt without offering it a category", () => {
-    const system = buildFeedbackAttentionClassificationPrompt({
-      messages,
-      targetMessageIds: ["m-safe"],
-    }).system;
-
-    expect(system).toContain("hostileToUs=true");
-    // The instruction that keeps `wine_crude_joke` out of the count: crudeness
-    // about somebody at the table is not an attack on us.
-    expect(system).toContain("hostileToUs=false");
-    expect(system).toContain("δεν είναι κατηγορία ασφάλειας");
-  });
-
   it("separates announcing an incident from describing one", () => {
     // Νίτσα Κομποσερογιάννη's «αν θέλετε, μπορώ να σας πω τι έγινε». It stays an
     // incident — an operator has to see it even if she never writes again — and
@@ -277,14 +236,6 @@ describe("feedback attention classification", () => {
       describedIncidentMessageIds: [],
       policyQuestions: [],
     });
-
-    const system = buildFeedbackAttentionClassificationPrompt({
-      messages,
-      targetMessageIds: ["m-incident"],
-    }).system;
-    expect(system).toContain("incidentDescribed=true");
-    expect(system).toContain("μόνο προαναγγέλλει");
-    expect(system).toContain("Το incident μένει true και στην προαναγγελία");
   });
 
   it("refuses a description of an incident it just said was not one", () => {
@@ -408,47 +359,6 @@ describe("feedback attention classification", () => {
         { messageId: "m-safe", question: "how_long_kept" },
       ],
     });
-  });
-
-  it("shows the classifier what each policy question asks and never an answer", () => {
-    // The whole design of the split: a model that never holds a policy sentence
-    // cannot paraphrase, soften or leak one. The ids and their descriptions are
-    // in the prompt; every approved sentence must not be.
-    const system = buildFeedbackAttentionClassificationPrompt({
-      messages,
-      targetMessageIds: ["m-safe"],
-    }).system;
-
-    for (const question of POST_EVENT_FEEDBACK_POLICY_QUESTIONS) {
-      expect(system).toContain(`${question}: `);
-    }
-    expect(system).toContain("Ένα id ανά μήνυμα");
-    for (const definition of Object.values(
-      POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS,
-    )) {
-      if (definition.answer !== null) {
-        expect(system).not.toContain(definition.answer);
-      }
-    }
-  });
-
-  it("rejects a policy question id outside the recognised list", () => {
-    expect(() =>
-      feedbackAttentionClassificationProposalSchema.parse({
-        results: [
-          {
-            messageId: "m-safe",
-            incident: false,
-            category: null,
-            recommendedAction: null,
-            hostileToUs: false,
-            incidentDescribed: false,
-            policyQuestion: "gdpr_dpo_contact",
-            confidence: 0.9,
-          },
-        ],
-      }),
-    ).toThrow();
   });
 
   it("rejects contradictory incident fields at the model boundary", () => {

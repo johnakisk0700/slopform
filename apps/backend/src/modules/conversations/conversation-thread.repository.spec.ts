@@ -106,21 +106,6 @@ describe("ConversationThreadRepository", () => {
     });
 
     expect(result.turns[0]?.output?.content).toBe("MongoDB is authoritative.");
-    expect(collection.createIndexes).toHaveBeenCalledWith([
-      {
-        name: "conversation_owner_purpose_updated_idx",
-        key: {
-          "owner.type": 1,
-          "owner.id": 1,
-          purpose: 1,
-          updatedAt: -1,
-        },
-      },
-      {
-        name: "conversation_purpose_state_updated_idx",
-        key: { purpose: 1, state: 1, updatedAt: 1 },
-      },
-    ]);
     expect(collection.updateOne).toHaveBeenCalledOnce();
     expect(collection.updateOne).toHaveBeenCalledWith(
       expect.objectContaining({

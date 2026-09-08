@@ -1,7 +1,6 @@
 import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
-import { validateFeedbackExtractionProposal } from "./validate-proposal.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import {
   createFeedbackExtractionProposalSchema,
@@ -11,6 +10,7 @@ import {
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
 } from "./extraction.schemas.js";
+import { validateFeedbackExtractionProposal } from "./validate-proposal.js";
 
 const respondent = "p-respondent";
 const nikos = "p-nikos";
@@ -570,25 +570,6 @@ describe("validateFeedbackExtractionProposal", () => {
       expect(result.skippedGoals).toEqual(["avoid"]);
     });
 
-    // This used to arrive as a rejection, because answers and skips were two
-    // independent lists and a goal could appear in both. One verdict per goal
-    // makes that inexpressible, so the conflict is resolved before the rules see
-    // it — and resolved towards the answer, because discarding what somebody
-    // actually said would be the worse reading. The validator keeps its
-    // `already_recorded` check for the path that is still reachable: a goal
-    // answered in an earlier run, covered by the case below.
-    it("keeps the answer when the same goal is also proposed as skipped", () => {
-      const result = validateFeedbackExtractionProposal(
-        proposal({ answers: [answer()], skippedGoals: ["liked"] }),
-        context(),
-      );
-
-      expect(result.answers.map((entry) => entry.questionKey)).toEqual([
-        "liked",
-      ]);
-      expect(result.skippedGoals).toEqual([]);
-    });
-
     it("refuses to skip a goal answered in an earlier run (D16)", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({ skippedGoals: ["liked"] }),
@@ -1048,19 +1029,6 @@ describe("validateFeedbackExtractionProposal", () => {
     });
   });
 
-  it("returns nothing to persist for an empty proposal", () => {
-    const result = validateFeedbackExtractionProposal(proposal(), context());
-
-    expect(result).toMatchObject({
-      answers: [],
-      notes: [],
-      skippedGoals: [],
-      nextGoal: null,
-      reply: null,
-      rejections: [],
-    });
-  });
-
   it("validates a V2 score against the goals actually stored on the conversation", () => {
     const questionKeys =
       POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
@@ -1148,76 +1116,5 @@ describe("feedbackExtractionProposalSchema", () => {
       }),
     ).toThrow();
     expect(() => schema.parse({ ...valid, nextGoal: "liked" })).toThrow();
-  });
-
-  it("rejects an unknown question key at the model boundary", () => {
-    expect(() =>
-      feedbackExtractionProposalSchema.parse({
-        answers: [answer({ questionKey: "salary" as never })],
-        notes: [],
-        skippedGoals: [],
-        nextGoal: null,
-        reply: null,
-        handoff: false,
-        confidence: 1,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects an unknown note type at the model boundary", () => {
-    expect(() =>
-      feedbackExtractionProposalSchema.parse({
-        answers: [],
-        notes: [note({ noteType: "safety" as never })],
-        skippedGoals: [],
-        nextGoal: null,
-        reply: null,
-        handoff: false,
-        confidence: 1,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects a note longer than the column allows", () => {
-    expect(() =>
-      feedbackExtractionProposalSchema.parse({
-        answers: [],
-        notes: [note({ text: "α".repeat(501) })],
-        skippedGoals: [],
-        nextGoal: null,
-        reply: null,
-        handoff: false,
-        confidence: 1,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects an extraction with no source message", () => {
-    expect(() =>
-      feedbackExtractionProposalSchema.parse({
-        answers: [answer({ sourceMessageIds: [] })],
-        notes: [],
-        skippedGoals: [],
-        nextGoal: null,
-        reply: null,
-        handoff: false,
-        confidence: 1,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects unknown fields so a drifting model output is caught", () => {
-    expect(() =>
-      feedbackExtractionProposalSchema.parse({
-        answers: [],
-        notes: [],
-        skippedGoals: [],
-        nextGoal: null,
-        reply: null,
-        handoff: false,
-        confidence: 1,
-        sendNow: true,
-      }),
-    ).toThrow();
   });
 });

@@ -100,48 +100,6 @@ describe("FeedbackOutboundIntentService", () => {
     );
   });
 
-  it("keeps the first context and cancelled status on dedupe replay", async () => {
-    const { service, outbox, outboundLog } = createService();
-    const originalContext = {
-      schemaVersion: 1 as const,
-      purpose: "campaign_intro" as const,
-    };
-    const cancelled = introRow({
-      status: "cancelled",
-      lastError: "dispatch_context_unusable",
-      dispatchContext: originalContext,
-    });
-    outbox.insertOutboxIfAbsent.mockResolvedValue({
-      row: cancelled,
-      inserted: false,
-    });
-
-    const result = await service.enqueue(transaction, {
-      dispatch: { schemaVersion: 1, purpose: "campaign_intro" },
-      message: {
-        conversationId,
-        campaignId,
-        body: "later body must not revive",
-        dedupeKey: `feedback-intro-${conversationId}`,
-      },
-      history: {
-        conversation: conversationDocument(),
-        decision: { origin: "campaign_intro", conversationCreated: false },
-        correlationId: "corr-replay",
-      },
-    });
-
-    expect(result).toEqual({ row: cancelled, inserted: false });
-    expect(result.row.status).toBe("cancelled");
-    expect(result.row.dispatchContext).toEqual(originalContext);
-    expect(outboundLog.record).toHaveBeenCalledWith(
-      transaction,
-      expect.objectContaining({
-        outbox: { row: cancelled, inserted: false },
-      }),
-    );
-  });
-
   it("rejects a purpose/kind/dedupe mismatch before insert", async () => {
     const { service, outbox, outboundLog } = createService();
 

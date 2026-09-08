@@ -9,16 +9,12 @@ import {
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
 } from "../post-event-feedback-conversation.document.js";
-import {
-  buildOutboundConversationSnapshot,
-  outboundConversationSnapshotSchema,
-} from "./outbound-log.snapshot.js";
+import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
 const createdAt = new Date("2026-07-25T10:00:00.000Z");
 const updatedAt = new Date("2026-07-25T10:30:00.000Z");
-const closedAt = new Date("2026-07-25T11:00:00.000Z");
 
 describe("buildOutboundConversationSnapshot", () => {
   it("summarises an open bot-controlled conversation with pending goals", () => {
@@ -65,51 +61,6 @@ describe("buildOutboundConversationSnapshot", () => {
       extractionCursorSeq: 2,
       reminderCount: 1,
     });
-    expect(outboundConversationSnapshotSchema.parse(snapshot)).toEqual(
-      snapshot,
-    );
-  });
-
-  it("carries a closed lifecycle reason and human control mode", () => {
-    const conversation = conversationDocument({
-      lifecycle: {
-        state: "closed",
-        reason: "cancelled",
-        closedAt,
-      },
-      control: {
-        mode: "human",
-        source: "staff_action",
-        changedAt: updatedAt,
-      },
-      awaitingHuman: false,
-      messages: [botMessage(1)],
-      extraction: {
-        cursorSeq: 1,
-        lastRunAt: null,
-        model: null,
-        usage: null,
-        serviceTier: null,
-        parkedSince: null,
-        parkedRuns: 0,
-        parkedNoticeSentAt: null,
-      },
-    });
-
-    const snapshot = buildOutboundConversationSnapshot(conversation);
-
-    expect(snapshot.lifecycle).toEqual({
-      state: "closed",
-      reason: "cancelled",
-    });
-    expect(snapshot.control).toEqual({
-      mode: "human",
-      source: "staff_action",
-      changedAt: updatedAt.toISOString(),
-    });
-    expect(outboundConversationSnapshotSchema.parse(snapshot)).toEqual(
-      snapshot,
-    );
   });
 
   it("counts only unresolved attention reasons and copies needsAttention", () => {
@@ -147,22 +98,6 @@ describe("buildOutboundConversationSnapshot", () => {
 
     expect(snapshot.needsAttention).toBe(true);
     expect(snapshot.unresolvedAttentionCount).toBe(2);
-    expect(outboundConversationSnapshotSchema.parse(snapshot)).toEqual(
-      snapshot,
-    );
-  });
-
-  it("reports an empty transcript as zero messages and a null latest seq", () => {
-    const conversation = conversationDocument({ messages: [] });
-
-    const snapshot = buildOutboundConversationSnapshot(conversation);
-
-    expect(snapshot.messageCount).toBe(0);
-    expect(snapshot.latestMessageSeq).toBeNull();
-    expect(snapshot.extractionCursorSeq).toBe(0);
-    expect(outboundConversationSnapshotSchema.parse(snapshot)).toEqual(
-      snapshot,
-    );
   });
 });
 

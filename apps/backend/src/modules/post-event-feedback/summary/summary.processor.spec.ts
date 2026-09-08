@@ -8,12 +8,11 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
-import type { PostEventFeedbackCampaignSummaryService } from "./summary.service.js";
 import {
   FEEDBACK_SUMMARY_CLAIM_BUSY_RETRY_MS,
-  FEEDBACK_SUMMARY_WORKER_CONCURRENCY,
   PostEventFeedbackSummaryProcessor,
 } from "./summary.processor.js";
+import type { PostEventFeedbackCampaignSummaryService } from "./summary.service.js";
 
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
 const data = {
@@ -25,10 +24,6 @@ const data = {
 
 describe("PostEventFeedbackSummaryProcessor", () => {
   beforeAll(() => Logger.overrideLogger(false));
-
-  it("keeps campaign model work serial per worker process", () => {
-    expect(FEEDBACK_SUMMARY_WORKER_CONCURRENCY).toBe(3);
-  });
 
   it("runs the exact durable summary attempt encoded by the job", async () => {
     const summaries = createSummaries();

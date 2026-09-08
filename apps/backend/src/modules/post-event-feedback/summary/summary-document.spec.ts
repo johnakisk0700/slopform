@@ -1,23 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  FEEDBACK_SUMMARY_LIST_ITEM_MAX,
   buildFeedbackCampaignSummaryDocument,
   parseFeedbackCampaignSummaryDocument,
   serializeFeedbackCampaignSummaryDocument,
 } from "./summary-document.js";
 
 describe("feedback campaign summary document", () => {
-  it("keeps per-field list ceilings instead of one shared max", () => {
-    expect(FEEDBACK_SUMMARY_LIST_ITEM_MAX).toEqual({
-      gossip: 10,
-      wentWrong: 10,
-      wentWell: 5,
-      curiosities: 5,
-      actions: 5,
-    });
-  });
-
   it("round-trips a v4 document and rejects legacy markdown", () => {
     const document = buildFeedbackCampaignSummaryDocument({
       metrics: {

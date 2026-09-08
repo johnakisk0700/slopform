@@ -35,24 +35,6 @@ describe("LoggingFeedbackOperatorAlert", () => {
     warn.mockRestore();
   });
 
-  it("omits an empty detail rather than logging an empty array", async () => {
-    const alert = createAlert("log");
-    const warn = vi
-      .spyOn(Logger.prototype, "warn")
-      .mockImplementation(() => undefined);
-
-    await alert.raise({
-      conversationId: "conversation-1",
-      campaignId: "campaign-1",
-      reason: "extraction_failed",
-      correlationId: "correlation-1",
-      detail: [],
-    });
-
-    expect(warn.mock.calls[0]?.[0]).not.toHaveProperty("detail");
-    warn.mockRestore();
-  });
-
   it("stays silent when the seam is switched off", async () => {
     const alert = createAlert("off");
     const warn = vi

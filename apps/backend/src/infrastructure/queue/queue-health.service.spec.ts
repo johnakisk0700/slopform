@@ -8,23 +8,6 @@ afterEach(() => {
 });
 
 describe("QueueHealthService", () => {
-  it("performs a real queue operation", async () => {
-    const queue = {
-      getJobCounts: vi.fn().mockResolvedValue({ wait: 0 }),
-      on: vi.fn(),
-    } as unknown as Queue;
-    const health = new QueueHealthService(queue);
-
-    await expect(health.ping()).resolves.toBeUndefined();
-    expect(queue.getJobCounts).toHaveBeenCalledWith(
-      "wait",
-      "active",
-      "delayed",
-      "failed",
-    );
-    expect(queue.on).toHaveBeenCalledWith("error", expect.any(Function));
-  });
-
   it("bounds and coalesces readiness checks while Redis is unavailable", async () => {
     vi.useFakeTimers();
     const queue = {

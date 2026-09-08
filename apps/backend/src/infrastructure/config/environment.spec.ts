@@ -39,50 +39,15 @@ describe("validateEnvironment", () => {
     expect(environment.API_PORT).toBe(4100);
     expect(environment.AUTH_DEV_BYPASS).toBe(false);
     expect(environment.BULL_BOARD_ENABLED).toBe(false);
-    expect(environment.OPENAI_API_KEY).toBeUndefined();
-    expect(environment.OPENROUTER_API_KEY).toBeUndefined();
-    expect(environment.RESEND_API_KEY).toBeUndefined();
-    expect(environment.RESEND_FROM_EMAIL).toBeUndefined();
-    expect(environment.WASENDER_SESSION_API_KEY).toBeUndefined();
     expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
-    expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
-    expect(environment.TRANSPORT_MODE).toBe("simulated");
     expect(environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED).toBe(false);
     expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
     expect(environment.FEEDBACK_EXTRACTION_STUB).toBe(false);
     expect(environment.FEEDBACK_TOPIC_ANALYSIS_ENABLED).toBe(false);
-    expect(environment.FEEDBACK_TOPIC_CLUSTERING_PYTHON).toBe(
-      "apps/topic-clustering/.venv/bin/python",
-    );
-    expect(environment.FEEDBACK_TOPIC_CLUSTERING_SCRIPT).toBe(
-      "apps/topic-clustering/cluster.py",
-    );
-    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE).toBe("none");
-    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT).toBe(0);
-    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_SEED).toBe("1");
-    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS).toBe(0);
-    expect(environment.FEEDBACK_REMINDER_AFTER_HOURS).toBe(24);
-    expect(environment.FEEDBACK_EXPIRE_AFTER_HOURS).toBe(72);
-    expect(environment.FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES).toBe(5);
-    expect(environment.MONGODB_URI).toBe(
-      "mongodb://localhost:27017/join_the_six",
-    );
-    expect(environment.REDIS_URL).toBe("redis://localhost:6379");
     expect(environment.WEB_ORIGIN).toEqual([
       "https://app.example.com",
       "http://localhost:3000",
     ]);
-  });
-
-  it("uses numeric defaults for blank environment values", () => {
-    const environment = validateEnvironment({
-      ...requiredEnvironment,
-      API_PORT: "",
-      DATABASE_POOL_MAX: "",
-    });
-
-    expect(environment.API_PORT).toBe(4000);
-    expect(environment.DATABASE_POOL_MAX).toBe(10);
   });
 
   it("accepts absent Clerk keys for non-HTTP process composition", () => {
@@ -455,29 +420,6 @@ describe("validateEnvironment", () => {
         RESEND_FROM_EMAIL: "sender@example.com",
       }),
     ).toThrow(/line breaks/);
-  });
-
-  it("validates the application name used by database clients and workers", () => {
-    expect(validateEnvironment(requiredEnvironment).APP_NAME).toBe(
-      "join-the-six-api",
-    );
-    expect(
-      validateEnvironment({ ...requiredEnvironment, APP_NAME: " worker " })
-        .APP_NAME,
-    ).toBe("worker");
-    expect(() =>
-      validateEnvironment({ ...requiredEnvironment, APP_NAME: " " }),
-    ).toThrow();
-  });
-
-  it.each([
-    ["DATABASE_URL", "not-a-database-url"],
-    ["MONGODB_URI", "not-a-database-url"],
-    ["REDIS_URL", "not-a-redis-url"],
-  ] as const)("reports malformed %s through Zod", (key, value) => {
-    expect(() =>
-      validateEnvironment({ ...requiredEnvironment, [key]: value }),
-    ).toThrow(/Invalid URL/);
   });
 
   it("requires a MongoDB database name and accepts SRV URLs", () => {

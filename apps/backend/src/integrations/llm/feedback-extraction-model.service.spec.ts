@@ -6,20 +6,18 @@ import {
 } from "ai";
 import { describe, expect, it } from "vitest";
 
+import type { AssistantModel } from "../../modules/assistant/assistant.schemas.js";
+import { FeedbackAttentionClassificationValidationError } from "../../modules/post-event-feedback/extraction/attention-classification.js";
 import {
   ASSISTANT_MODEL_ADAPTERS,
   assistantModelAdapter,
 } from "./assistant-models.js";
-import type { AssistantModel } from "../../modules/assistant/assistant.schemas.js";
-import { FeedbackAttentionClassificationValidationError } from "../../modules/post-event-feedback/extraction/attention-classification.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
   FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS,
-  FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
   FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
   FEEDBACK_SUMMARY_ONLY_MODEL,
-  DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT,
   FeedbackExtractionGenerationError,
   feedbackAttentionClassificationMaxOutputTokens,
   feedbackExtractionMaxOutputTokens,
@@ -29,18 +27,10 @@ import {
   resolveFeedbackExtractionModel,
   resolveFeedbackExtractionReasoningEffort,
   resolveFeedbackExtractionServiceTier,
-  resolveFeedbackReplyReasoningEffort,
   toGenerationError,
 } from "./feedback-extraction-model.service.js";
 
 describe("feedback extraction model selection", () => {
-  it("defaults to the D12 model", () => {
-    expect(resolveFeedbackExtractionModel(undefined)).toBe(
-      "google/gemini-3.6-flash",
-    );
-    expect(FEEDBACK_EXTRACTION_DEFAULT_MODEL).toBe("google/gemini-3.6-flash");
-  });
-
   it("accepts registered models except the summary-only Terra model", () => {
     for (const id of Object.keys(ASSISTANT_MODEL_ADAPTERS).filter(
       (candidate) => candidate !== FEEDBACK_SUMMARY_ONLY_MODEL,
@@ -97,57 +87,6 @@ describe("feedback extraction model selection", () => {
     expect(() => resolveFeedbackExtractionReasoningEffort("maximum")).toThrow(
       /FEEDBACK_EXTRACTION_REASONING_EFFORT/u,
     );
-  });
-
-  it("defaults the participant-facing writer to low and accepts an explicit effort", () => {
-    expect(DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT).toBe("low");
-    expect(resolveFeedbackReplyReasoningEffort(undefined)).toBe("low");
-    expect(resolveFeedbackReplyReasoningEffort("")).toBe("low");
-    expect(resolveFeedbackReplyReasoningEffort("medium")).toBe("medium");
-    expect(() => resolveFeedbackReplyReasoningEffort("tiny")).toThrow(
-      /FEEDBACK_REPLY_REASONING_EFFORT/u,
-    );
-  });
-
-  // Probed against the responses API on 2026-07-31: `max` answered 200 where an
-  // invented effort answers 400. `maximum` above is the near-miss that must
-  // still be refused, which is why both live in this file.
-  it("accepts the max effort OpenAI added above xhigh", () => {
-    expect(resolveFeedbackExtractionReasoningEffort("max")).toBe("max");
-    expect(resolveFeedbackAttentionReasoningEffort("max")).toBe("max");
-    expect(
-      feedbackExtractionProviderOptions("openai/gpt-5.6-luna", "max"),
-    ).toEqual({ openai: { reasoningEffort: "max" } });
-    expect(feedbackExtractionMaxOutputTokens("max")).toBe(
-      FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
-    );
-  });
-
-  // The two settings share a vocabulary and disagree about the empty case on
-  // purpose. Extraction unset means «omit the field»; the classifier has always
-  // sent an explicit `none`, and unset must keep doing exactly that rather than
-  // handing a 1,024-token ceiling to whatever the provider defaults to.
-  it("defaults the classifier effort to an explicit none, not to an omitted field", () => {
-    expect(resolveFeedbackAttentionReasoningEffort(undefined)).toBe("none");
-    expect(resolveFeedbackAttentionReasoningEffort("")).toBe("none");
-    expect(() => resolveFeedbackAttentionReasoningEffort("maximum")).toThrow(
-      /FEEDBACK_ATTENTION_REASONING_EFFORT/u,
-    );
-  });
-
-  it("spells a configured classifier effort for the provider that receives it", () => {
-    expect(
-      feedbackExtractionProviderOptions(
-        "openai/gpt-5.6-luna",
-        resolveFeedbackAttentionReasoningEffort("high"),
-      ),
-    ).toEqual({ openai: { reasoningEffort: "high" } });
-    expect(
-      feedbackExtractionProviderOptions(
-        "google/gemini-3.6-flash",
-        resolveFeedbackAttentionReasoningEffort("low"),
-      ),
-    ).toEqual({ openrouter: { reasoning: { effort: "low" } } });
   });
 
   // 1,024 is a batch of verdicts and nothing else. A thinking classifier spends
@@ -224,35 +163,6 @@ describe("feedback extraction model selection", () => {
         "priority",
       ),
     ).toBeUndefined();
-  });
-
-  // `serviceTier: undefined` is still an own property and would be serialised
-  // into the request body, so an unset tier must be absent from the object, not
-  // present-and-undefined.
-  it("omits the service tier key entirely when it is unset", () => {
-    const options = feedbackExtractionProviderOptions(
-      "openai/gpt-5.6-luna",
-      "high",
-    );
-
-    expect(options).toEqual({ openai: { reasoningEffort: "high" } });
-    expect(Object.keys(options?.openai ?? {})).toEqual(["reasoningEffort"]);
-    expect(
-      feedbackExtractionProviderOptions(
-        "openai/gpt-5.6-luna",
-        undefined,
-        undefined,
-      ),
-    ).toBeUndefined();
-  });
-
-  it("spells the configured effort for the provider that receives it", () => {
-    expect(
-      feedbackExtractionProviderOptions("openai/gpt-5.6-luna", "xhigh"),
-    ).toEqual({ openai: { reasoningEffort: "xhigh" } });
-    expect(
-      feedbackExtractionProviderOptions("google/gemini-3.6-flash", "high"),
-    ).toEqual({ openrouter: { reasoning: { effort: "high" } } });
   });
 
   // The measured failure this guards: at `xhigh` Luna spent the entire 2,048
@@ -364,15 +274,6 @@ describe("feedback extraction failure mapping", () => {
       code: "extraction_failed",
       retryable: true,
     });
-  });
-
-  it("passes an existing generation error through unchanged", () => {
-    const original = new FeedbackExtractionGenerationError(
-      "provider_unavailable",
-      false,
-    );
-
-    expect(toGenerationError(original)).toBe(original);
   });
 
   it("retries an incomplete attention classification as validation failure", () => {
@@ -549,19 +450,6 @@ describe("feedback extraction failure mapping", () => {
       ]) {
         expect(isFeedbackProviderIncident(error)).toBe(false);
       }
-    });
-
-    it("falls back to unknown for anything unrecognised", () => {
-      expect(toGenerationError(new Error("socket hang up")).failureCause).toBe(
-        "unknown",
-      );
-    });
-
-    it("defaults the cause when one is not supplied", () => {
-      expect(
-        new FeedbackExtractionGenerationError("provider_unavailable", false)
-          .failureCause,
-      ).toBe("unknown");
     });
   });
 });

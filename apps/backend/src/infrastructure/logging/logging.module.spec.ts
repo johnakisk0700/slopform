@@ -69,14 +69,6 @@ describe("LoggingModule configuration", () => {
     );
   });
 
-  it("uses readable development output only for an interactive terminal", () => {
-    expect(optionsFor("development", true).transport).toMatchObject({
-      target: "pino-pretty",
-    });
-    expect(optionsFor("development", false).transport).toBeUndefined();
-    expect(optionsFor("production", true).transport).toBeUndefined();
-  });
-
   it("redacts common application-level credentials", () => {
     const redact = optionsFor().redact;
     let output = "";

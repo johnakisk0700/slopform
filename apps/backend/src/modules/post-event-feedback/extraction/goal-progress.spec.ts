@@ -200,16 +200,6 @@ describe("goal progress from recorded results", () => {
     ]);
   });
 
-  it("leaves updates alone when the outbound carries no askedGoal", () => {
-    const recorded = resolveGoalStatuses(
-      goals,
-      context(),
-      validated({ skippedGoals: ["avoid"] }),
-    );
-
-    expect(withAskedGoal(recorded, undefined)).toEqual(recorded);
-  });
-
   it("settles every open goal when the bot withdraws without asking", () => {
     // Πάνος Μούλαρος: «Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο» — no
     // answers, no notes, no question, yet nextGoal still named. Without

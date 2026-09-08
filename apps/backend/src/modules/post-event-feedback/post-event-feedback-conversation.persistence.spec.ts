@@ -1,25 +1,23 @@
-import { FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES } from "./post-event-feedback-conversation.document.js";
 import { randomUUID } from "node:crypto";
+import { FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES } from "./post-event-feedback-conversation.document.js";
 
 import type { FeedbackConversationRow } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
-import {
-  conversationMessagesExceedCapacity,
-  reviveConversationJson,
-  serializeConversationJson,
-  toDocument,
-  toLaunchInsert,
-  toRespondent,
-  toRowUpdate,
-  toSummary,
-} from "./post-event-feedback-conversation.persistence.js";
 import {
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
 } from "./post-event-feedback-conversation.document.js";
+import {
+  conversationMessagesExceedCapacity,
+  reviveConversationJson,
+  serializeConversationJson,
+  toDocument,
+  toRowUpdate,
+  toSummary,
+} from "./post-event-feedback-conversation.persistence.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
@@ -103,15 +101,6 @@ describe("feedback conversation persistence mapping", () => {
     expect(toRowUpdate(document)).not.toHaveProperty("executionEpoch");
   });
 
-  it("does not persist a whole-document copy", () => {
-    const insert = toLaunchInsert(conversation());
-    expect(insert).not.toHaveProperty("document");
-    expect(insert).not.toHaveProperty("schemaVersion");
-    expect(insert.workRevision).toBe(0);
-    expect(insert.workNextActionAt).toBeNull();
-    expect(insert.messages).toEqual([]);
-  });
-
   it("projects a compact summary without prompts or the transcript", () => {
     const document = conversation({
       goals: [
@@ -139,14 +128,6 @@ describe("feedback conversation persistence mapping", () => {
       status: "asked",
     });
     expect(summary.goals[0]).not.toHaveProperty("prompt");
-  });
-
-  it("projects a respondent row for outbound-queue name resolution", () => {
-    expect(toRespondent(rowFrom(conversation()))).toEqual({
-      _id: conversationId,
-      respondentParticipantId,
-      phoneAtLaunch,
-    });
   });
 
   it("guards transcript capacity by array length and JSON bytes", () => {

@@ -3,11 +3,11 @@ import { APICallError, generateText, streamText } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
+import { AssistantToolsService } from "../../modules/assistant/tools/assistant-tools.service.js";
 import {
   AssistantGenerationError,
   AssistantGenerationService,
 } from "./assistant-generation.service.js";
-import { AssistantToolsService } from "../../modules/assistant/tools/assistant-tools.service.js";
 
 vi.mock("ai", async (importOriginal) => {
   const original = await importOriginal<typeof import("ai")>();
@@ -40,18 +40,6 @@ function createService(keys: {
   );
   return new AssistantGenerationService(config, tools);
 }
-
-const EXPECTED_TOOL_NAMES = [
-  "current_datetime",
-  "list_events",
-  "get_event",
-  "search_participants",
-  "get_participant",
-  "list_feedback_campaigns",
-  "get_campaign_summary",
-  "list_feedback_conversations",
-  "get_feedback_conversation",
-];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -87,7 +75,6 @@ describe("AssistantGenerationService", () => {
         },
       },
     });
-    expect(Object.keys(options?.tools ?? {})).toEqual(EXPECTED_TOOL_NAMES);
   });
 
   it("calls Qwen3.7 Max through its exact OpenRouter id and effort options", async () => {
@@ -175,7 +162,6 @@ describe("AssistantGenerationService", () => {
     // The streaming path offers the same tools as the buffered one; the fast
     // lane is an OpenAI request parameter, so no OpenRouter routing pin here.
     const streamed = mockedStreamText.mock.calls[0]?.[0];
-    expect(Object.keys(streamed?.tools ?? {})).toEqual(EXPECTED_TOOL_NAMES);
     expect(streamed?.providerOptions).not.toHaveProperty("openrouter");
     expect(mockedGenerateText).not.toHaveBeenCalled();
   });

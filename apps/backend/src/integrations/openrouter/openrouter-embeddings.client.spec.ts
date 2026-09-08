@@ -16,6 +16,7 @@ const input = {
   },
 };
 const vector = Array.from({ length: 1024 }, () => 0.123);
+const secondVector = Array.from({ length: 1024 }, () => 0.456);
 const client = () =>
   new OpenRouterEmbeddingsClient(
     new ConfigService<Environment, true>({ OPENROUTER_API_KEY: "test-key" }),
@@ -23,7 +24,7 @@ const client = () =>
 const response = (overrides: Record<string, unknown> = {}) => ({
   model,
   data: [
-    { index: 1, embedding: vector },
+    { index: 1, embedding: secondVector },
     { index: 0, embedding: vector },
   ],
   usage: { prompt_tokens: 7, cost: 0.00000007 },
@@ -37,7 +38,7 @@ describe("OpenRouter embeddings boundary", () => {
     vi.stubGlobal("fetch", fetcher);
     const result = await client().embed(input, new AbortController().signal);
     expect(result).toMatchObject({
-      vectors: [vector, vector],
+      vectors: [vector, secondVector],
       usage: { promptTokens: 7, costUsd: 0.00000007 },
     });
     expect(fetcher).toHaveBeenCalledOnce();

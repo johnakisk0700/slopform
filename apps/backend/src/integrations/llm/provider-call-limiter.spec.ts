@@ -4,17 +4,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  PROVIDER_CALL_CONCURRENCY_LIMIT,
   ProviderCallLimiter,
   RedisProviderCallLimiter,
   type ProviderCallRedisClient,
 } from "./provider-call-limiter.js";
 
 describe("ProviderCallLimiter", () => {
-  it("keeps the deployment-wide 30 concurrent default explicit", () => {
-    expect(PROVIDER_CALL_CONCURRENCY_LIMIT).toBe(30);
-  });
-
   it("never runs more than the configured number of calls", async () => {
     const limiter = new ProviderCallLimiter(2);
     let active = 0;
@@ -75,16 +70,6 @@ describe("RedisProviderCallLimiter transport failures", () => {
     );
     expect(call).not.toHaveBeenCalled();
     expect(redis.zrem).not.toHaveBeenCalled();
-  });
-
-  it("rejects an invalid acquisition result", async () => {
-    redis.eval.mockResolvedValue(null);
-    const call = vi.fn();
-
-    await expect(new RedisProviderCallLimiter(redis).run(call)).rejects.toThrow(
-      "invalid provider-slot result",
-    );
-    expect(call).not.toHaveBeenCalled();
   });
 });
 

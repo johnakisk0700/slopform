@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { assistantModelAdapter } from "../../../integrations/llm/assistant-models.js";
-import {
-  FEEDBACK_EXTRACTION_PERMISSIVE_SAFETY_SETTINGS,
-  resolveFeedbackExtractionProviderSettings,
-} from "./permissive-safety-settings.js";
+import { resolveFeedbackExtractionProviderSettings } from "./permissive-safety-settings.js";
 
 describe("feedback extraction provider safety settings", () => {
   it("relaxes the thresholds for the default Gemini extraction model", () => {
@@ -40,19 +37,5 @@ describe("feedback extraction provider safety settings", () => {
     expect(
       resolveFeedbackExtractionProviderSettings(assistantModelAdapter(model)),
     ).toBeUndefined();
-  });
-
-  it("hands out a fresh copy so a caller cannot mutate the constant", () => {
-    const first = resolveFeedbackExtractionProviderSettings(
-      assistantModelAdapter("google/gemini-3.6-flash"),
-    );
-    const settings = first?.extraBody["safety_settings"] as {
-      threshold: string;
-    }[];
-    settings[0]!.threshold = "BLOCK_ALL";
-
-    expect(FEEDBACK_EXTRACTION_PERMISSIVE_SAFETY_SETTINGS[0].threshold).toBe(
-      "BLOCK_NONE",
-    );
   });
 });

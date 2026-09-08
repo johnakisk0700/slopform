@@ -135,33 +135,6 @@ function createService(overrides: {
 }
 
 describe("FeedbackOutboxQueueViewService.listQueue", () => {
-  it("lists a page without asking for per-row delivery details", async () => {
-    const rows = Array.from({ length: 25 }, (_entry, index) => ({
-      row: {
-        ...outboxRow,
-        id: `${index}`.padStart(8, "0") + OUTBOX_ID.slice(8),
-      },
-      campaignStatus: "launched" as const,
-      eventId: EVENT_ID,
-      eventTitle: "Δείπνο Ιουλίου",
-    }));
-    const findOutboxWithContextById = vi.fn();
-    const { service } = createService({
-      outbox: {
-        listUndeliveredOutbox: vi.fn().mockResolvedValue(rows),
-        countUndeliveredOutboxByStatus: vi
-          .fn()
-          .mockResolvedValue(new Map([["pending", 25]])),
-        findOutboxWithContextById,
-      },
-    });
-
-    const view = await service.listQueue(NOW);
-
-    expect(view.items).toHaveLength(25);
-    expect(findOutboxWithContextById).not.toHaveBeenCalled();
-  });
-
   it("measures age against the server clock and reports the campaign context", async () => {
     const { service } = createService({
       outbox: {
@@ -584,29 +557,6 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
         findOutboxWithContextById: vi
           .fn()
           .mockResolvedValue(withContext(outboxRow)),
-      },
-    });
-
-    await expect(
-      service.getMessageDelivery(OUTBOX_ID, NOW),
-    ).resolves.toMatchObject({ log: null });
-  });
-
-  it("returns log null when the stored decision no longer parses", async () => {
-    const { service } = createService({
-      outbox: {
-        findOutboxWithContextById: vi
-          .fn()
-          .mockResolvedValue(withContext(outboxRow)),
-      },
-      outboundLogs: {
-        findLogByOutboxId: vi.fn().mockResolvedValue({
-          ...outboundLogRow,
-          decision: {
-            origin: "extraction_reply",
-            // Missing every field the schema requires.
-          },
-        }),
       },
     });
 

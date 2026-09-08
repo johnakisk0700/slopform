@@ -171,10 +171,10 @@ semantics; do not copy that pattern for ordinary CRUD.
 
 ## Operations and tests
 
-- `openapi-document.spec.ts` — real HTTP composition vs committed artifact,
-  unique operation ids, `/api/v1` prefix, deterministic serialization.
-- `apps/admin/test/generated-api-client.spec.ts` — path transformer, one hook
-  per operation, mutator routing, admin gate, single `QueryClientProvider`.
+- `openapi-document.spec.ts` — unique, explicit operation IDs in the actual
+  emitted document, preserving generated-client names.
+- `apps/admin/test/generated-api-client.spec.ts` — API path rebasing
+  and rejection of paths outside the API mount.
 - `pnpm api:check` sits between `docs:check` and `typecheck` in `pnpm check`.
   Admin Turbo tasks depend on `api:generate`.
 - Emit opens no port and needs no live dependency. Eager Redis clients may log
