@@ -2,10 +2,7 @@ import type { Job, Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 import { FEEDBACK_JOB_NAMES } from "../jobs.schemas.js";
-import {
-  FeedbackOutboxDispatchProcessor,
-  nextOutboxPollInterval,
-} from "./dispatch.processor.js";
+import { FeedbackOutboxDispatchProcessor } from "./dispatch.processor.js";
 import type { MessageOutboxDispatcherService } from "./dispatcher.service.js";
 
 const emptyBatch = { claimedCount: 0, quarantinedCount: 0, items: [] };
@@ -30,18 +27,6 @@ function createProcessor() {
 }
 
 describe("feedback outbox polling", () => {
-  it("restores the persisted cadence and allows one batch job across replicas", async () => {
-    const { processor, queue } = createProcessor();
-    queue.getJobScheduler.mockResolvedValue({ every: 4_000 });
-    await processor.onApplicationBootstrap();
-    expect(queue.setGlobalConcurrency).toHaveBeenCalledWith(1);
-    expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
-      FEEDBACK_JOB_NAMES.dispatchOutboxV2,
-      { every: 4_000 },
-      expect.objectContaining({ name: FEEDBACK_JOB_NAMES.dispatchOutboxV2 }),
-    );
-  });
-
   it("processes at most 100 messages in small claim waves before accelerating", async () => {
     const { processor, queue, dispatcher, job } = createProcessor();
     dispatcher.dispatchBatch.mockResolvedValue({
@@ -102,17 +87,5 @@ describe("feedback outbox polling", () => {
       "Invalid feedback outbox poll job",
     );
     expect(dispatcher.dispatchBatch).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    [1_000, 100, 500],
-    [250, 100, 250],
-    [1_000, 49, 2_000],
-    [4_000, 0, 5_000],
-    [5_000, 0, 5_000],
-    [1_000, 50, 1_000],
-    [1_000, 99, 1_000],
-  ])("adapts %ims after %i claims to %ims", (current, claimed, expected) => {
-    expect(nextOutboxPollInterval(current, claimed)).toBe(expected);
   });
 });

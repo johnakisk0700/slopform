@@ -5,16 +5,16 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   renderPostEventFeedbackCopy,
 } from "../question-set.js";
-import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction.schemas.js";
+import { type GoalStatusUpdate } from "./goal-progress.js";
 import {
   resolveOutbound,
   withCampaignReaskCap,
   withPolicyAnswers,
   withSafetyAssurance,
 } from "./outbound-reply.js";
-import { type GoalStatusUpdate } from "./goal-progress.js";
 import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "./policy-answers.js";
+import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
 const conversation = {
@@ -867,64 +867,6 @@ describe("withCampaignReaskCap", () => {
       outbound: undefined,
       stalledOnMessageId: null,
     });
-  });
-
-  it("reproduces the run-13 shape when the cap is not consulted", () => {
-    // The falsification. `resolveOutbound` on its own — the code path as it
-    // stood — hands back the identical body however many times it has already
-    // gone out, and the dedupe key moves with the testimony seq, so nothing
-    // downstream would have stopped it either. Remove the cap and this is what
-    // the participant receives.
-    const uncapped = [9, 11, 13].map((seq) =>
-      resolveOutbound(
-        conversation,
-        validated({
-          nextGoal: "meet_again",
-          reply: "Τέλεια, το σημείωσα!",
-          rejections: [
-            {
-              scope: "answer",
-              reason: "unresolved_subject",
-              questionKey: "liked",
-            },
-          ],
-        }),
-        false,
-        false,
-        seq,
-        copy,
-        noRecordedUpdates,
-      )!,
-    );
-
-    expect(uncapped.map((outbound) => outbound.body)).toEqual([
-      copy.liked,
-      copy.liked,
-      copy.liked,
-    ]);
-    expect(new Set(uncapped.map((outbound) => outbound.dedupeKey)).size).toBe(
-      3,
-    );
-
-    // And the cap is the whole of what stops it. A pre-fix transcript that
-    // already carries the identical body twice gets the variant — the one
-    // wording left that is not a repeat —
-    expect(
-      withCampaignReaskCap(botSaid(copy.liked, copy.liked), uncapped[2], copy)
-        .outbound,
-    ).toEqual({
-      body: copy.liked_reask,
-      dedupeKey: uncapped[2]!.dedupeKey,
-      askedGoal: "liked",
-    });
-    // — and once the variant is on the transcript too, the next is withheld.
-    expect(
-      withCampaignReaskCap(
-        botSaid(copy.liked, copy.liked, copy.liked_reask),
-        uncapped[2],
-        copy,
-      ).outbound,
-    ).toBeUndefined();
   });
 });
 

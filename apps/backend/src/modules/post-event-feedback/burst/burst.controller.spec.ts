@@ -10,34 +10,6 @@ import { FeedbackBurstController } from "./burst.controller.js";
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
 describe("FeedbackBurstController accounting", () => {
-  it("returns the API process's durable accounting projection", async () => {
-    const rows = [
-      {
-        conversationId: "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55",
-        extraction: {
-          model: "openai/gpt-5.6-luna",
-          usage: {
-            inputTokens: 1_200,
-            outputTokens: 200,
-            totalTokens: 1_400,
-          },
-          serviceTier: null,
-        },
-      },
-    ];
-    const conversations = {
-      listExtractionAccountingForCampaigns: vi.fn().mockResolvedValue(rows),
-    };
-    const controller = createController({ conversations });
-
-    await expect(
-      controller.getAccounting({ campaignId: [campaignId] }),
-    ).resolves.toEqual(rows);
-    expect(
-      conversations.listExtractionAccountingForCampaigns,
-    ).toHaveBeenCalledWith([campaignId]);
-  });
-
   it("keeps accounting behind the same simulator gate", async () => {
     const controller = createController({ simulatorEnabled: false });
 

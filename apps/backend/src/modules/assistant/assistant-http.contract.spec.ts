@@ -4,8 +4,8 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { AssistantJobsService } from "./assistant-jobs.service.js";
-import type { AssistantService } from "./assistant.service.js";
 import type { AssistantStreamRelay } from "./assistant-stream.relay.js";
+import type { AssistantService } from "./assistant.service.js";
 
 vi.mock("@clerk/express", async (importOriginal) => {
   const original = await importOriginal<typeof import("@clerk/express")>();
@@ -93,37 +93,6 @@ describe("assistant HTTP contract", () => {
   afterAll(async () => {
     await app?.close();
     vi.unstubAllEnvs();
-  });
-
-  it("publishes thread, turn, poll and retry schemas in OpenAPI", async () => {
-    const response = await fetch(`${baseUrl}/api/openapi.json`);
-    const document = (await response.json()) as {
-      paths: Record<string, Record<string, unknown>>;
-    };
-    expect(response.status).toBe(200);
-    expect(document.paths["/api/v1/assistant/threads"]).toMatchObject({
-      get: expect.any(Object),
-      post: expect.any(Object),
-    });
-    expect(document.paths["/api/v1/assistant/threads/{id}"]).toHaveProperty(
-      "get",
-    );
-    expect(
-      document.paths["/api/v1/assistant/threads/{id}/turns"],
-    ).toHaveProperty("post");
-    expect(
-      document.paths["/api/v1/assistant/threads/{id}/branches"],
-    ).toHaveProperty("post");
-    expect(
-      document.paths[
-        "/api/v1/assistant/threads/{threadId}/turns/{turnId}/retry"
-      ],
-    ).toHaveProperty("post");
-    expect(
-      document.paths[
-        "/api/v1/assistant/threads/{threadId}/turns/{turnId}/stream"
-      ],
-    ).toHaveProperty("get");
   });
 
   it("streams replayable live frames after authorizing the durable turn", async () => {

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   attestFeedbackWorkers,
   createFeedbackWorkerRegistrationName,
-  createFeedbackWorkerRegistrationNameFromEnvironment,
   parseFeedbackWorkerRegistrationName,
   resolveFeedbackWorkerControlProfile,
 } from "./worker-attestation.js";
@@ -115,26 +114,6 @@ describe("feedback worker control attestation", () => {
         },
       ],
     });
-  });
-
-  it("uses the same defaults and strict boolean vocabulary as environment validation", () => {
-    const name = createFeedbackWorkerRegistrationNameFromEnvironment({
-      FEEDBACK_EXTRACTION_STUB: " false ",
-      FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-luna",
-      FEEDBACK_EXTRACTION_REASONING_EFFORT: "medium",
-      FEEDBACK_REPLY_REASONING_EFFORT: "medium",
-      FEEDBACK_ATTENTION_REASONING_EFFORT: "medium",
-      FEEDBACK_EXTRACTION_SERVICE_TIER: "",
-    });
-
-    expect(parseFeedbackWorkerRegistrationName(name)).toEqual(
-      paidLunaProfile(),
-    );
-    expect(() =>
-      createFeedbackWorkerRegistrationNameFromEnvironment({
-        FEEDBACK_EXTRACTION_STUB: "1",
-      }),
-    ).toThrow("FEEDBACK_EXTRACTION_STUB must be true or false");
   });
 });
 

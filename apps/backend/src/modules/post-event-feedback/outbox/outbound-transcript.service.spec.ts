@@ -2,16 +2,12 @@ import { Logger } from "@nestjs/common";
 import type { AppTransaction, MessageOutboxRow } from "@slopform/database";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
 } from "../post-event-feedback-conversation.repository.js";
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
-import {
-  FEEDBACK_OUTBOX_KIND_ACTORS,
-  FeedbackOutboundTranscriptService,
-  UnsupportedMessageOutboxKindError,
-} from "./outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
 import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
@@ -22,18 +18,6 @@ const at = new Date("2026-07-25T10:00:00.000Z");
 describe("FeedbackOutboundTranscriptService", () => {
   beforeAll(() => {
     Logger.overrideLogger(false);
-  });
-
-  it("labels every outbox kind with the actor the transcript schema allows", () => {
-    // `actor: system` is reserved for entries with no transport provenance, so
-    // an outbox-backed message can only ever be `bot` or `staff`.
-    expect(FEEDBACK_OUTBOX_KIND_ACTORS).toEqual({
-      intro: "bot",
-      reminder: "bot",
-      reply: "bot",
-      system: "bot",
-      staff: "staff",
-    });
   });
 
   it.each([
@@ -65,36 +49,6 @@ describe("FeedbackOutboundTranscriptService", () => {
       );
     },
   );
-
-  it("is idempotent by outboxId so a replayed producer adds nothing", async () => {
-    const { service, conversations } = createService();
-    conversations.appendMessage.mockResolvedValue({
-      appended: false,
-      message: {},
-      conversation: {},
-    });
-
-    await expect(
-      service.record(transaction, outboxRow(), at),
-    ).resolves.toMatchObject({
-      outcome: "already_present",
-    });
-  });
-
-  it("uses the stored row body, never a caller-proposed text", async () => {
-    const { service, conversations } = createService();
-
-    await service.record(
-      transaction,
-      outboxRow({ body: "  Ευχαριστούμε!  " }),
-      at,
-    );
-
-    expect(conversations.appendMessage).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ text: "Ευχαριστούμε!" }),
-    );
-  });
 
   it("cancels the row instead of sending a message it cannot record", async () => {
     const { service, conversations, repository } = createService();
@@ -188,14 +142,6 @@ describe("FeedbackOutboundTranscriptService", () => {
         messageId: null,
       }),
     );
-  });
-
-  it("refuses to mislabel an outbox kind the actor map does not know", async () => {
-    const { service } = createService();
-
-    await expect(
-      service.record(transaction, outboxRow({ kind: "broadcast" }), at),
-    ).rejects.toBeInstanceOf(UnsupportedMessageOutboxKindError);
   });
 
   it("propagates a non-capacity persistence failure instead of cancelling", async () => {

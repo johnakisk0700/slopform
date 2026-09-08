@@ -1,18 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import type { INestApplication } from "@nestjs/common";
 import type { OpenAPIObject } from "@nestjs/swagger";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import {
-  OPENAPI_EMIT_ENVIRONMENT,
-  serializeOpenApiDocument,
-} from "./openapi-document.js";
-
-const ARTIFACT_PATH = fileURLToPath(
-  new URL("../../../openapi/openapi.json", import.meta.url),
-);
+import { OPENAPI_EMIT_ENVIRONMENT } from "./openapi-document.js";
 
 describe("published OpenAPI document", () => {
   let application: INestApplication;
@@ -36,12 +26,6 @@ describe("published OpenAPI document", () => {
     vi.unstubAllEnvs();
   });
 
-  it("matches the committed artifact the admin client is generated from", () => {
-    expect(serializeOpenApiDocument(document)).toBe(
-      readFileSync(ARTIFACT_PATH, "utf8"),
-    );
-  });
-
   it("names every operation explicitly and uniquely", () => {
     const operationIds = operations(document).map(
       ([, operation]) => operation.operationId,
@@ -55,21 +39,6 @@ describe("published OpenAPI document", () => {
     }
 
     expect(new Set(operationIds).size).toBe(operationIds.length);
-  });
-
-  it("publishes every route under the prefix the admin client is rebased on", () => {
-    for (const [path] of operations(document)) {
-      expect(path.startsWith("/api/v1/")).toBe(true);
-    }
-  });
-
-  it("serializes deterministically with sorted keys", () => {
-    const serialized = serializeOpenApiDocument(document);
-    const keys = Object.keys(JSON.parse(serialized) as Record<string, unknown>);
-
-    expect(keys).toStrictEqual([...keys].sort());
-    expect(serialized.endsWith("\n")).toBe(true);
-    expect(serialized).toBe(serializeOpenApiDocument(document));
   });
 });
 

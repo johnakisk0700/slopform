@@ -1,14 +1,7 @@
-import { getQueueToken } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
-import { SELF_DECLARED_DEPS_METADATA } from "@nestjs/common/constants.js";
 import type { Job } from "bullmq";
 import { UnrecoverableError } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-
-import {
-  FEEDBACK_INGRESS_QUEUE,
-  FEEDBACK_QUEUE,
-} from "../../../infrastructure/queue/queue.constants.js";
 import { ConversationPersistenceError } from "../../conversations/conversation-persistence.errors.js";
 import {
   createFeedbackMaterializeJobId,
@@ -16,83 +9,20 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
-import { PostEventFeedbackSweepService } from "../sweeps/sweep.service.js";
-import {
-  FEEDBACK_INGRESS_WORKER_CONCURRENCY,
-  PostEventFeedbackIngressProcessor,
-} from "./ingress.processor.js";
-import { PostEventFeedbackIngressNotFoundError } from "./materialize.service.js";
+import { PostEventFeedbackIngressProcessor } from "./ingress.processor.js";
 import type { PostEventFeedbackMaterializationCoordinator } from "./materialization-coordinator.service.js";
-import { PostEventFeedbackIngressService } from "./ingress.service.js";
-import { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
+import { PostEventFeedbackIngressNotFoundError } from "./materialize.service.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
-const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const validData = {
   schemaVersion: 1,
   ingressId,
   correlationId: "correlation-1",
 };
 
-/**
- * The separation itself, asserted on the wiring rather than on behaviour.
- *
- * Nothing about a shared queue is wrong in a unit test: materialization and
- * extraction both work, one after the other, in milliseconds. What went wrong
- * only appeared under load, where extraction held every slot for the length of
- * a model call and inbound messages waited an average of 118 seconds to reach
- * the transcript. A test that runs one job at a time can never reproduce that,
- * so it guards the structural fact that prevents it instead.
- */
-describe("feedback ingress queue separation", () => {
-  it("routes webhook and recovery enqueue through the dedicated ingress wake-up boundary", () => {
-    const declared = (Reflect.getMetadata(
-      SELF_DECLARED_DEPS_METADATA,
-      FeedbackMaterializeWakeupService,
-    ) ?? []) as readonly { param: unknown }[];
-    const tokens = declared.map((dependency) => dependency.param);
-
-    expect(tokens).toContain(getQueueToken(FEEDBACK_INGRESS_QUEUE));
-    expect(tokens).not.toContain(getQueueToken(FEEDBACK_QUEUE));
-
-    for (const caller of [
-      PostEventFeedbackIngressService,
-      PostEventFeedbackSweepService,
-    ]) {
-      const callerDependencies = (Reflect.getMetadata(
-        SELF_DECLARED_DEPS_METADATA,
-        caller,
-      ) ?? []) as readonly { param: unknown }[];
-      expect(callerDependencies.map(({ param }) => param)).not.toContain(
-        getQueueToken(FEEDBACK_INGRESS_QUEUE),
-      );
-    }
-  });
-
-  it("keeps the two queues distinct", () => {
-    expect(FEEDBACK_INGRESS_QUEUE).not.toBe(FEEDBACK_QUEUE);
-  });
-});
-
 describe("PostEventFeedbackIngressProcessor", () => {
   beforeAll(() => {
     Logger.overrideLogger(false);
-  });
-
-  it("keeps the documented cross-conversation concurrency explicit", () => {
-    expect(FEEDBACK_INGRESS_WORKER_CONCURRENCY).toBe(20);
-  });
-
-  it("materializes a valid job through the durable consumer", async () => {
-    const materializer = {
-      materialize: vi
-        .fn()
-        .mockResolvedValue({ outcome: "inbound_materialized", conversationId }),
-    };
-
-    await createProcessor(materializer).process(createJob(validData));
-
-    expect(materializer.materialize).toHaveBeenCalledWith(validData);
   });
 
   it("refuses a job id that does not derive from its own payload", async () => {

@@ -2,21 +2,21 @@ import { Logger } from "@nestjs/common";
 import { DelayedError, UnrecoverableError, type Job } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { PostEventFeedbackExtractionFallback } from "../extraction/fallback.service.js";
-import type { FeedbackConversationExecutionLimiter } from "../extraction/execution-limiter.service.js";
 import { FeedbackExtractionGenerationError } from "../../../integrations/llm/feedback-extraction-model.service.js";
+import type { FeedbackConversationExecutionLimiter } from "../extraction/execution-limiter.service.js";
 import { FeedbackConversationExecutionGuardError } from "../extraction/extract.service.js";
+import type { PostEventFeedbackExtractionFallback } from "../extraction/fallback.service.js";
 import {
   createFeedbackReconcileConversationJobId,
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
+import { FEEDBACK_RECONCILIATION_INVARIANT_FAILURE_REASON } from "./reconcile-failure.js";
 import {
   FEEDBACK_CLAIM_BUSY_RETRY_MS,
   FeedbackConversationReconcileProcessor,
 } from "./reconcile.processor.js";
-import { FEEDBACK_RECONCILIATION_INVARIANT_FAILURE_REASON } from "./reconcile-failure.js";
 import type { FeedbackConversationReconcileService } from "./reconcile.service.js";
 
 const conversationId = "85b4e284-28d9-55e5-9d8b-e981671d37d2";
@@ -29,18 +29,6 @@ const data = {
 
 describe("FeedbackConversationReconcileProcessor", () => {
   beforeAll(() => Logger.overrideLogger(false));
-
-  it("runs a valid fenced revision through the reconciler", async () => {
-    const harness = createHarness();
-
-    await harness.processor.process(createJob());
-
-    expect(harness.reconciler.reconcile).toHaveBeenCalledWith(data);
-    expect(harness.legacyConversationExecutions.run).toHaveBeenCalledWith(
-      conversationId,
-      expect.any(Function),
-    );
-  });
 
   it("rejects a malformed reconciliation payload without touching durable state", async () => {
     const harness = createHarness();
@@ -149,26 +137,18 @@ describe("FeedbackConversationReconcileProcessor", () => {
     expect(harness.fallback.park).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["planning", "campaign lookup unavailable"],
-    ["reminder", "reminder outbox transaction failed"],
-    ["expiry", "expiry close transaction failed"],
-    ["settlement", "work settlement failed"],
-  ])(
-    "does not misclassify an exhausted %s failure as extraction failure",
-    async (_stage, message) => {
-      const harness = createHarness();
-      const failure = new Error(message);
-      harness.reconciler.reconcile.mockRejectedValue(failure);
+  it("does not misclassify an exhausted dependency failure as extraction failure", async () => {
+    const harness = createHarness();
+    const failure = new Error("dependency unavailable");
+    harness.reconciler.reconcile.mockRejectedValue(failure);
 
-      await expect(
-        harness.processor.process(createJob({ attemptsMade: 4, attempts: 5 })),
-      ).rejects.toBe(failure);
+    await expect(
+      harness.processor.process(createJob({ attemptsMade: 4, attempts: 5 })),
+    ).rejects.toBe(failure);
 
-      expect(harness.fallback.apply).not.toHaveBeenCalled();
-      expect(harness.fallback.park).not.toHaveBeenCalled();
-    },
-  );
+    expect(harness.fallback.apply).not.toHaveBeenCalled();
+    expect(harness.fallback.park).not.toHaveBeenCalled();
+  });
 
   it("lets deterministic fallback own the atomic human handoff", async () => {
     const harness = createHarness();

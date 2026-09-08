@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-
-import { ASSISTANT_MODEL_ADAPTERS } from "../../integrations/llm/assistant-models.js";
 import {
   ASSISTANT_JOB_NAMES,
   assistantJobDataSchema,
@@ -30,31 +28,6 @@ describe("assistant schemas", () => {
     expect(() =>
       createAssistantTurnSchema.parse({ requestId, content: " " }),
     ).toThrow();
-  });
-
-  it("maps every public model id to the exact provider model id", () => {
-    expect(ASSISTANT_MODEL_ADAPTERS).toEqual({
-      "openai/gpt-5.6-luna": {
-        provider: "openai",
-        providerModelId: "gpt-5.6-luna",
-        supportsTools: true,
-      },
-      "openai/gpt-5.6-terra": {
-        provider: "openai",
-        providerModelId: "gpt-5.6-terra",
-        supportsTools: true,
-      },
-      "google/gemini-3.6-flash": {
-        provider: "openrouter",
-        providerModelId: "google/gemini-3.6-flash",
-        supportsTools: true,
-      },
-      "qwen/qwen3.7-max": {
-        provider: "openrouter",
-        providerModelId: "qwen/qwen3.7-max",
-        supportsTools: true,
-      },
-    });
   });
 
   it("keeps the v2 job envelope strict and identifier-only", () => {

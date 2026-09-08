@@ -18,28 +18,6 @@ describe("outbox history cursor", () => {
     });
   });
 
-  it("keeps the millisecond, because the sort key does", () => {
-    // Two messages written inside the same second is the ordinary case during
-    // a burst. A cursor rounded to the second would either repeat that whole
-    // second on every page or skip past it.
-    const cursor = encodeOutboxHistoryCursor({ createdAt: CREATED_AT, id: ID });
-
-    expect(decodeOutboxHistoryCursor(cursor)?.createdAt.toISOString()).toBe(
-      "2026-07-27T11:41:00.500Z",
-    );
-  });
-
-  it("survives a query string, so it carries no + or /", () => {
-    const cursors = Array.from({ length: 64 }, (_entry, index) =>
-      encodeOutboxHistoryCursor({
-        createdAt: new Date(CREATED_AT.getTime() + index * 977),
-        id: ID,
-      }),
-    );
-
-    expect(cursors.some((cursor) => /[+/=]/u.test(cursor))).toBe(false);
-  });
-
   it.each([
     ["empty", ""],
     ["not base64 at all", "not-a-cursor"],

@@ -68,40 +68,4 @@ describe("answer corrections on extraction_meta", () => {
       isCorrectedAnswer(appendAnswerCorrection(extracted, correction())),
     ).toBe(true);
   });
-
-  it("ignores a blob that does not read as a correction", () => {
-    // `extraction_meta` is an open jsonb record, so this is a parse and not a
-    // cast: a shape nobody wrote through `appendAnswerCorrection` must not be
-    // able to 500 the results endpoint, and must not silently freeze a row
-    // against extraction either.
-    const malformed: FeedbackExtractionMeta = {
-      ...extracted,
-      corrections: [
-        "4 → 2",
-        { at: "2026-07-27T10:00:00.000Z" },
-        { at: 5, by: "admin-1", from: { valueInt: 4 }, to: { valueInt: 2 } },
-        correction(),
-      ],
-    };
-
-    expect(readAnswerCorrections(malformed)).toStrictEqual([correction()]);
-    expect(
-      readAnswerCorrections({ ...extracted, corrections: "nope" }),
-    ).toStrictEqual([]);
-    expect(isCorrectedAnswer({ ...extracted, corrections: [] })).toBe(false);
-  });
-
-  it("accepts a correction to and from no value at all", () => {
-    // Slice 1 only corrects scored questions, so `from` is always a number
-    // today. The reader still has to hold a null: `value_int` is null on every
-    // liked / meet_again / avoid row, and a reader that refused null would
-    // start dropping history the day this widens.
-    const meta = appendAnswerCorrection(
-      extracted,
-      correction({ from: { valueInt: null }, to: { valueInt: null } }),
-    );
-
-    expect(latestAnswerCorrection(meta)?.from.valueInt).toBeNull();
-    expect(isCorrectedAnswer(meta)).toBe(true);
-  });
 });

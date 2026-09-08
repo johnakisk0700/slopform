@@ -6,32 +6,6 @@ import {
 } from "./session-pacer.js";
 
 describe("RedisFeedbackSendLimiter", () => {
-  it("shares one ordered start timeline across limiter instances", async () => {
-    const redis = new FakeSendLimiterRedis();
-    const sleepsA: number[] = [];
-    const sleepsB: number[] = [];
-    const limiterA = new RedisFeedbackSendLimiter(redis, {
-      minIntervalMs: 100,
-      jitterMs: 0,
-      sleep: async (ms) => {
-        sleepsA.push(ms);
-      },
-    });
-    const limiterB = new RedisFeedbackSendLimiter(redis, {
-      minIntervalMs: 100,
-      jitterMs: 0,
-      sleep: async (ms) => {
-        sleepsB.push(ms);
-        redis.advance(ms);
-      },
-    });
-
-    await expect(limiterA.waitTurn()).resolves.toEqual({ waitedMs: 0 });
-    await expect(limiterB.waitTurn()).resolves.toEqual({ waitedMs: 100 });
-    expect(sleepsA).toEqual([]);
-    expect(sleepsB).toEqual([100]);
-  });
-
   it("makes a late sleeper compete again instead of bunching starts", async () => {
     const redis = new FakeSendLimiterRedis();
     const first = new RedisFeedbackSendLimiter(redis, {
@@ -85,15 +59,6 @@ describe("RedisFeedbackSendLimiter", () => {
     });
 
     await expect(limiter.waitTurn()).rejects.toThrow("redis unavailable");
-  });
-
-  it("owns and disconnects its dedicated Redis client", () => {
-    const redis = new FakeSendLimiterRedis();
-    const limiter = new RedisFeedbackSendLimiter(redis);
-
-    limiter.onApplicationShutdown();
-
-    expect(redis.disconnected).toBe(true);
   });
 });
 

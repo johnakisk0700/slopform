@@ -33,7 +33,9 @@ Current source and area docs own the operational contract.
 Default to the simplest implementation of today's requirement. Main operations
 read as recipes of named steps; split files by responsibility and share actual
 business rules. No speculative options, forwarding layers or repeated internal
-validation. Test consequential behavior rather than source strings or styling.
+validation. Keep tests only for business contracts or consequential mechanical
+guarantees. Object construction, provider registration, source strings and
+styling are not contracts; mocks cannot prove database locks or queue recovery.
 Before merging, review new abstractions against real callers/responsibilities;
 fewer lines alone do not demonstrate simpler code.
 
@@ -85,8 +87,9 @@ do not edit the old one. Template:
   `api:check` is **not** cheap (full
   backend build + orval); it sits third so contract drift fails before later
   gates matter. Reorder only if fail-fast survives.
-- `test:scripts` (`node --test "scripts/*.spec.mjs"`) is part of `pnpm check`.
-  A `.spec.sh` is **not** picked up by that glob.
+- `test:scripts` runs `node --test "scripts/*.spec.mjs"` and the explicit
+  `bash scripts/production-operator.spec.sh` invocation as part of `pnpm check`.
+  Other `.spec.sh` files are not picked up automatically.
 - **`typecheck` and `build` do not cover the same files.**
   `tsconfig.build.json` excludes specs; custom scenarios and tools live in
   [the harness workspace](harness/README.md), included by root `typecheck` and

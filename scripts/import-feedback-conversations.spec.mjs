@@ -1,29 +1,21 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
   APPLY_ACKNOWLEDGEMENT,
-  DOCUMENT_MODULE_PATH,
-  PERSISTENCE_MODULE_PATH,
-  SOURCE_FILTER,
+  canonicalConversationRow,
   classifyImportDecision,
   conversationRowsMatch,
-  canonicalConversationRow,
-  prepareImportedDocument,
   importFeedbackConversations,
   parseImportArguments,
+  prepareImportedDocument,
   resolveDocumentToRow,
 } from "./import-feedback-conversations.mjs";
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptsDirectory, "..");
-const importSource = readFileSync(
-  path.join(scriptsDirectory, "import-feedback-conversations.mjs"),
-  "utf8",
-);
 
 const sampleDocument = {
   _id: "11111111-1111-4111-8111-111111111111",
@@ -93,66 +85,6 @@ test("dry-run is the default and apply requires quiesced-writer acknowledgement"
     () => parseImportArguments(["--force"]),
     /Unknown import option/,
   );
-});
-
-test("source filter is schema-v2 post-event feedback only", () => {
-  assert.deepEqual(SOURCE_FILTER, {
-    schemaVersion: 2,
-    purpose: "post_event_feedback",
-  });
-  assert.match(importSource, /schemaVersion: SOURCE_FILTER\.schemaVersion/u);
-  assert.match(importSource, /purpose: SOURCE_FILTER\.purpose/u);
-  assert.doesNotMatch(importSource, /admin_assistant/u);
-});
-
-test("import uses the compiled persistence mapper and never deletes Mongo", () => {
-  const persistenceSource = readFileSync(
-    path.join(
-      repositoryRoot,
-      "apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.persistence.ts",
-    ),
-    "utf8",
-  );
-  assert.match(persistenceSource, /export function toLaunchInsert/u);
-  assert.match(persistenceSource, /export function serializeConversationJson/u);
-  assert.ok(DOCUMENT_MODULE_PATH.startsWith(repositoryRoot));
-  assert.ok(
-    PERSISTENCE_MODULE_PATH.endsWith(
-      "post-event-feedback-conversation.persistence.js",
-    ),
-  );
-  assert.match(importSource, /resolveDocumentToRow/u);
-  assert.match(importSource, /toLaunchInsert/u);
-  assert.match(importSource, /documentToRow/u);
-  assert.doesNotMatch(
-    importSource,
-    /deleteMany|drop\(|delete from conversation/u,
-  );
-  assert.doesNotMatch(
-    importSource,
-    /from ["']dotenv|require\(["']dotenv|dotenv\.config/u,
-  );
-  assert.match(importSource, /createRequire\(/u);
-  assert.match(importSource, /apps\/backend\/package\.json/u);
-});
-
-test("import logs identities and never interpolates transcripts or secrets", () => {
-  assert.doesNotMatch(
-    importSource,
-    /message\.text|transcript|WASENDER|password/u,
-  );
-  assert.match(importSource, /invalid \$\{item\.id\}/u);
-  assert.match(importSource, /reject \$\{item\.id\}/u);
-});
-
-test("resolveDocumentToRow prefers the storage document mapper", () => {
-  const mapped = resolveDocumentToRow({
-    toLaunchInsert(document) {
-      return { id: document._id, campaignId: "from-mapper" };
-    },
-  })(sampleDocument);
-  assert.equal(mapped.id, sampleDocument._id);
-  assert.equal(mapped.campaign_id, "from-mapper");
 });
 
 test("identical destination rows skip; divergent rows reject", () => {

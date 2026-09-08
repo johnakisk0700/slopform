@@ -45,7 +45,7 @@
     "openapi:emit": "turbo run openapi:emit --filter=@slopform/backend",
     "prod": "bash scripts/prod.sh",
     "test": "turbo run test",
-    "test:scripts": "node --test \"scripts/*.spec.mjs\"",
+    "test:scripts": "node --test \"scripts/*.spec.mjs\" && bash scripts/production-operator.spec.sh",
     "topic-clustering:setup": "node scripts/topic-clustering.mjs setup",
     "test:topic-clustering": "node scripts/topic-clustering.mjs test",
     "typecheck": "turbo run typecheck",

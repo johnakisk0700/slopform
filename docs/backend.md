@@ -102,7 +102,7 @@ Product domains live under `src/modules/`; external provider boundaries under
 5. Export the smallest useful surface from one domain module. Split Core/HTTP/
    Worker only when one use case genuinely serves both graphs.
 6. Import HTTP adapters only from `HttpAppModule`, processors only from
-   `WorkerAppModule`; test the composition boundary.
+   `WorkerAppModule`; verify the resulting HTTP and worker behavior.
 7. `@ApiOperation({ operationId })` in lower camel case, then
    `pnpm api:generate` and commit regenerated
    `apps/backend/openapi/openapi.json`. `pnpm api:check` fails on drift.
@@ -187,7 +187,9 @@ pnpm --filter @slopform/backend build
 
 ### Test recipes
 
-- Unit: schemas, invariants, orchestration.
+- Unit: business decisions and observable failure/recovery behavior. Validate
+  boundary rejection where it enforces a product or security contract; do not
+  repeat schema declarations, constructor defaults or provider lists in tests.
 - Adapter semantics: real disposable PostgreSQL/Redis; bounded waits; exact
   cleanup. Do not mock Drizzle chains or BullMQ internals.
 - MongoDB lifecycle/repository units: inject bounded fakes; never silently

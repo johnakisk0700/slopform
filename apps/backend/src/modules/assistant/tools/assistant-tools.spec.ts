@@ -1,19 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { asSchema } from "ai";
 
 import { AssistantToolsService } from "./assistant-tools.service.js";
-
-interface JsonSchemaNode {
-  readonly type?: string | string[];
-  readonly description?: string;
-  readonly properties?: Record<string, JsonSchemaNode>;
-  readonly items?: JsonSchemaNode;
-  readonly anyOf?: readonly JsonSchemaNode[];
-  readonly oneOf?: readonly JsonSchemaNode[];
-  readonly allOf?: readonly JsonSchemaNode[];
-  readonly $ref?: string;
-  readonly additionalProperties?: boolean | JsonSchemaNode;
-}
 
 /**
  * The real registry over doubles, named by role rather than by position.
@@ -47,75 +34,6 @@ function createTools(
     (doubles.summaries ?? { get: vi.fn() }) as never,
   );
 }
-
-function registry(): AssistantToolsService {
-  return createTools();
-}
-
-async function inputSchemaOf(name: string): Promise<JsonSchemaNode> {
-  const definition = registry().toolSet()[name];
-  if (!definition?.inputSchema) {
-    throw new Error(`Tool ${name} has no input schema`);
-  }
-  const { jsonSchema } = await asSchema(definition.inputSchema);
-  return jsonSchema as JsonSchemaNode;
-}
-
-describe("assistant tool registry", () => {
-  it("describes every tool it offers", () => {
-    for (const [name, definition] of Object.entries(registry().toolSet())) {
-      expect(definition.description, `${name} needs a description`).toBeTypeOf(
-        "string",
-      );
-      expect(definition.description?.length ?? 0).toBeGreaterThan(20);
-    }
-  });
-
-  /**
-   * The narrowest provider decides the schema, not the SDK.
-   *
-   * A union or a nested object is accepted by OpenAI direct and rejected
-   * mid-turn by another route, which surfaces as an unexplained provider
-   * rejection on one model only — the most expensive kind of bug to chase. The
-   * cost of keeping inputs flat is a wordier tool; the cost of not is a model
-   * that works in review and fails for whoever picked Gemini.
-   */
-  it("keeps every input schema inside the portable subset", async () => {
-    for (const name of Object.keys(registry().toolSet())) {
-      const schema = await inputSchemaOf(name);
-      expect(schema.type, `${name} must take an object`).toBe("object");
-
-      for (const [field, property] of Object.entries(schema.properties ?? {})) {
-        const where = `${name}.${field}`;
-        expect(property.$ref, `${where} must not use $ref`).toBeUndefined();
-        expect(property.anyOf, `${where} must not use anyOf`).toBeUndefined();
-        expect(property.oneOf, `${where} must not use oneOf`).toBeUndefined();
-        expect(property.allOf, `${where} must not use allOf`).toBeUndefined();
-        expect(
-          property.properties,
-          `${where} must not nest an object`,
-        ).toBeUndefined();
-        expect(property.description, `${where} needs a description`).toBeTypeOf(
-          "string",
-        );
-      }
-    }
-  });
-
-  it("names its tools in the vocabulary the system prompt teaches", () => {
-    expect(Object.keys(registry().toolSet())).toEqual([
-      "current_datetime",
-      "list_events",
-      "get_event",
-      "search_participants",
-      "get_participant",
-      "list_feedback_campaigns",
-      "get_campaign_summary",
-      "list_feedback_conversations",
-      "get_feedback_conversation",
-    ]);
-  });
-});
 
 describe("assistant tool execution", () => {
   it("caps a large result set and says that it did", async () => {

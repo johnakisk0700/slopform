@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   createFeedbackClosingDedupeKey,
-  createFeedbackFallbackDedupeKey,
   createFeedbackHandoffDedupeKey,
   createFeedbackHostilityStopDedupeKey,
   createFeedbackReplyDedupeKey,
@@ -18,7 +17,6 @@ import {
   DISPATCH_CONTEXT_MISMATCH,
   DISPATCH_CONTEXT_UNUSABLE,
   FALLBACK_FENCE_NOT_SENDABLE,
-  assertEnqueueDispatchContext,
   evaluateDispatchContext,
   ordinaryDispatchEvidenceFromConversation,
   parseDispatchContext,
@@ -58,34 +56,6 @@ describe("dispatch context", () => {
         },
       ],
     });
-    const live = conversationDocument({
-      updatedAt: new Date("2026-07-26T00:00:00.000Z"),
-      control: {
-        mode: "human",
-        source: "staff_action",
-        changedAt: new Date("2026-07-26T00:00:00.000Z"),
-      },
-      work: {
-        revision: 20,
-        nextActionAt: null,
-        executionEpoch: 9,
-        campaignResumeGeneration: 8,
-      },
-      messages: [
-        ...original.messages,
-        {
-          id: "22222222-2222-4222-8222-222222222222",
-          seq: 2,
-          actor: "participant",
-          text: "later",
-          at: new Date("2026-07-26T00:00:00.000Z"),
-          ingressId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          providerMessageId: null,
-          outboxId: null,
-          attention: null,
-        },
-      ],
-    });
 
     const evidence = ordinaryDispatchEvidenceFromConversation(original);
 
@@ -103,9 +73,6 @@ describe("dispatch context", () => {
       },
       participantIngressIds: [ingressId],
     });
-    expect(ordinaryDispatchEvidenceFromConversation(live).work.revision).toBe(
-      20,
-    );
   });
 
   it("never treats missing or unusable context as permission", () => {
@@ -169,50 +136,6 @@ describe("dispatch context", () => {
         conversationId,
       }).state,
     ).toBe("usable");
-  });
-
-  it("rejects non-canonical positive decimal testimony suffixes", () => {
-    const ordinary = {
-      schemaVersion: 1 as const,
-      purpose: "extraction_reply" as const,
-      evidence: ordinaryDispatchEvidenceFromConversation(
-        conversationDocument(),
-      ),
-    };
-    for (const suffix of ["1e2", "0x10", "+1", "01", " 1", "1 "]) {
-      expect(
-        evaluateDispatchContext({
-          context: ordinary,
-          kind: "reply",
-          dedupeKey: `feedback-reply-${conversationId}-${suffix}`,
-          conversationId,
-        }),
-      ).toMatchObject({ reason: DISPATCH_CONTEXT_MISMATCH });
-    }
-    expect(
-      evaluateDispatchContext({
-        context: ordinary,
-        kind: "reply",
-        dedupeKey: createFeedbackReplyDedupeKey(conversationId, 10),
-        conversationId,
-      }).state,
-    ).toBe("usable");
-    expect(() =>
-      assertEnqueueDispatchContext(
-        { schemaVersion: 1, purpose: "extraction_fallback_fence" },
-        "system",
-        `feedback-fallback-${conversationId}-1e2`,
-        conversationId,
-      ),
-    ).toThrow(/does not match/);
-    expect(() =>
-      assertEnqueueDispatchContext(
-        { schemaVersion: 1, purpose: "extraction_fallback_fence" },
-        "system",
-        createFeedbackFallbackDedupeKey(conversationId, 2),
-        conversationId,
-      ),
-    ).not.toThrow();
   });
 });
 

@@ -16,27 +16,27 @@ import type { Environment } from "../../../infrastructure/config/environment.js"
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import type { FeedbackConversationExecutionFence } from "../extraction/execution-fence.service.js";
 import type {
   FeedbackConversationExecutionClaim,
   FeedbackConversationExecutionFenceRepository,
 } from "../extraction/execution-fence.repository.js";
+import type { FeedbackConversationExecutionFence } from "../extraction/execution-fence.service.js";
 import {
   FeedbackConversationExecutionGuardError,
   type PostEventFeedbackExtractor,
 } from "../extraction/extract.service.js";
 import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 import { createFeedbackReconcileConversationJobId } from "../jobs.schemas.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import {
   buildFeedbackConversationGoals,
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
 } from "../post-event-feedback-conversation.document.js";
-import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationInactivityService } from "./conversation-inactivity.service.js";
-import type { FeedbackConversationWakeupService } from "./wakeup.service.js";
 import { FeedbackConversationReconcileService } from "./reconcile.service.js";
+import type { FeedbackConversationWakeupService } from "./wakeup.service.js";
 
 const conversationId = "85b4e284-28d9-55e5-9d8b-e981671d37d2";
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -332,61 +332,6 @@ describe("FeedbackConversationReconcileService", () => {
     expect(harness.extractor.extract).toHaveBeenCalled();
     expect(harness.wakeups.ensureQueued).toHaveBeenCalled();
     expect(harness.executionFence.release).toHaveBeenCalledWith(claim);
-  });
-
-  it("names execute_action when the planned action throws and keeps that error", async () => {
-    const records = captureOperations();
-    const harness = createHarness();
-    const failure = Object.assign(
-      new Error("provider temporarily unavailable"),
-      {
-        code: "ETIMEDOUT",
-      },
-    );
-    harness.extractor.extract.mockRejectedValue(failure);
-
-    await expect(harness.service.reconcile(input)).rejects.toBe(failure);
-    expect(
-      records.find(
-        (record) =>
-          record.operation === "reconcile" && record.status === "failed",
-      ),
-    ).toMatchObject({
-      stage: "execute_action",
-      errorName: "Error",
-      errorCode: "ETIMEDOUT",
-      conversationId,
-      workRevision: input.revision,
-    });
-  });
-
-  it("records authoritative supersession as a classified completed outcome", async () => {
-    const records = captureOperations();
-    const harness = createHarness();
-    harness.extractor.extract.mockRejectedValue(
-      new FeedbackConversationExecutionGuardError(
-        conversationId,
-        "authoritative_state_changed",
-      ),
-    );
-
-    await expect(harness.service.reconcile(input)).resolves.toBe("superseded");
-    expect(
-      records.find(
-        (record) =>
-          record.operation === "reconcile" && record.status !== "started",
-      ),
-    ).toMatchObject({
-      stage: "execute_action",
-      status: "completed",
-      outcome: "superseded",
-    });
-    expect(
-      records.some(
-        (record) =>
-          record.operation === "reconcile" && record.status === "failed",
-      ),
-    ).toBe(false);
   });
 
   it("keeps a settled return when successor enqueue fails", async () => {

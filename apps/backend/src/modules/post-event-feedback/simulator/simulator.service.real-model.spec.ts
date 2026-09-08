@@ -5,32 +5,32 @@ import type { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
-import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
 import type { EventsRepository } from "../../events/events.repository.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
+import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
+import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import type { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import {
+  createFeedbackWorkerRegistrationName,
+  resolveFeedbackWorkerControlProfile,
+} from "../worker-attestation.js";
+import { feedbackSimulatorDurableAutomation, runStage } from "./run-status.js";
+import type { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
+import { startFeedbackSimulatorRunSchema } from "./simulator.schemas.js";
 import {
   FeedbackSimulatorRunRejectedError,
   FeedbackSimulatorService,
   isFeedbackSimulatorSingleTurnScenario,
   renderFeedbackSimulatorTemplate,
 } from "./simulator.service.js";
-import { startFeedbackSimulatorRunSchema } from "./simulator.schemas.js";
-import { feedbackSimulatorDurableAutomation, runStage } from "./run-status.js";
-import type { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
-import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
-import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
-import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import type { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
-import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
-import {
-  createFeedbackWorkerRegistrationName,
-  resolveFeedbackWorkerControlProfile,
-} from "../worker-attestation.js";
 
 const campaignId = "11111111-1111-4111-8111-111111111111";
 const eventId = "22222222-2222-4222-8222-222222222222";
@@ -115,114 +115,6 @@ describe("real-model feedback simulator", () => {
     expect(harness.queue.getWorkers).not.toHaveBeenCalled();
     expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
     expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
-  });
-
-  it("exposes only the two agreed models and clean rolling-window scenarios", async () => {
-    const { service } = createHarness();
-    const catalog = await service.getCatalog();
-
-    expect(catalog.availableModels).toEqual([
-      "openai/gpt-5.6-luna",
-      "qwen/qwen3.7-max",
-    ]);
-    expect(catalog).toMatchObject({
-      activeModel: "openai/gpt-5.6-luna",
-      activeExtractionReasoningEffort: "medium",
-      activeReplyReasoningEffort: "medium",
-      activeAttentionReasoningEffort: "medium",
-      activeServiceTier: null,
-      activeTransportMode: "simulated",
-      activeSimulatedTransport: {
-        faultMode: "none",
-        faultPercent: 0,
-        seed: "1",
-        maxDelayMs: 0,
-      },
-      workerAttestation: {
-        status: "verified",
-        registeredWorkerCount: 1,
-      },
-    });
-    expect(catalog.timingPolicy).toBe("single_quiet_window_batch");
-    expect(catalog.scenarios).toHaveLength(24);
-    const scoreFollowUpIntents = [
-      "ask_event_score",
-      "ask_table_fit",
-      "ask_participation_ease",
-      "ask_conversation_balance",
-    ] as const;
-    expect(
-      [
-        ...new Set(
-          catalog.scenarios
-            .map((scenario) => scenario.rubric.reply?.requiredIntent)
-            .filter((intent): intent is (typeof scoreFollowUpIntents)[number] =>
-              scoreFollowUpIntents.some((candidate) => candidate === intent),
-            ),
-        ),
-      ].sort(),
-    ).toEqual([...scoreFollowUpIntents].sort());
-    expect(catalog.scenarios.map((scenario) => scenario.id)).not.toEqual(
-      expect.arrayContaining([
-        "changes_the_score",
-        "number_changed_owner",
-        "refuses_a_question",
-        "discloses_as_the_very_last_thing",
-      ]),
-    );
-    expect(catalog.scenarios.map((scenario) => scenario.id)).toContain(
-      "slow_typist",
-    );
-  });
-
-  it("publishes the resolved paid-model controls used by the runner", async () => {
-    const { service } = createHarness({
-      FEEDBACK_EXTRACTION_REASONING_EFFORT: "high",
-      FEEDBACK_REPLY_REASONING_EFFORT: "medium",
-      FEEDBACK_ATTENTION_REASONING_EFFORT: "low",
-      FEEDBACK_EXTRACTION_SERVICE_TIER: "priority",
-    });
-
-    await expect(service.getCatalog()).resolves.toMatchObject({
-      activeModel: "openai/gpt-5.6-luna",
-      activeExtractionReasoningEffort: "high",
-      activeReplyReasoningEffort: "medium",
-      activeAttentionReasoningEffort: "low",
-      activeServiceTier: "priority",
-    });
-  });
-
-  it("publishes and attests the exact simulated transport treatment", async () => {
-    const { service } = createHarness({
-      FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "mixed",
-      FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: 20,
-      FEEDBACK_SIMULATED_TRANSPORT_SEED: "canary-7",
-      FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS: 4_000,
-    });
-
-    await expect(service.getCatalog()).resolves.toMatchObject({
-      activeTransportMode: "simulated",
-      activeSimulatedTransport: {
-        faultMode: "mixed",
-        faultPercent: 20,
-        seed: "canary-7",
-        maxDelayMs: 4_000,
-      },
-      workerAttestation: {
-        status: "verified",
-        observedProfiles: [
-          {
-            transportMode: "simulated",
-            simulatedTransport: {
-              faultMode: "mixed",
-              faultPercent: 20,
-              seed: "canary-7",
-              maxDelayMs: 4_000,
-            },
-          },
-        ],
-      },
-    });
   });
 
   it("reports no effective OpenAI service tier for an OpenRouter model", async () => {

@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-
-import { foldGreekAccents, foldPostEventFeedbackText } from "./fold-text.js";
 import { matchesPostEventFeedbackStopCommand } from "./stop-command.js";
 
 describe("post-event feedback STOP matcher", () => {
@@ -107,11 +105,5 @@ describe("post-event feedback STOP matcher", () => {
     expect(
       matchesPostEventFeedbackStopCommand("ο Νίκος δεν σταματούσε να μιλάει"),
     ).toBe(false);
-  });
-
-  it("normalizes whitespace, punctuation and Greek accents deterministically", () => {
-    expect(foldPostEventFeedbackText("  STOP   ALL  ")).toBe("stop all");
-    expect(foldPostEventFeedbackText("Διάκοπή!")).toBe("διακοπη");
-    expect(foldGreekAccents("άέήίόύώΐΰ")).toBe("αεηιουωιυ");
   });
 });

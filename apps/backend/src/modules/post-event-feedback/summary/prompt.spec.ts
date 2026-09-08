@@ -35,8 +35,6 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
     expect(prompt).toContain("Καταλληλότητα παρέας και τραπεζιού (4/5)");
     expect(prompt).toContain("Ευκολία συμμετοχής στη συζήτηση (3/5)");
     expect(prompt).toContain("Ισορροπία συμμετοχής στη συζήτηση (2/5)");
-    expect(prompt).toContain("Κράτα χωριστές τις τέσσερις βαθμολογίες");
-    expect(prompt).not.toContain("Το liked είναι η απάντηση V1");
   });
 
   it("preserves V1 liked, meet-again, and avoid semantics without V2 dimensions", () => {
@@ -51,102 +49,10 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
       questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions,
       answers,
     });
-
-    expect(prompt).toContain("Αναλύεις campaign με ερωτηματολόγιο V1");
     expect(prompt).toContain("Συνολική βαθμολογία βραδιάς (4/5)");
     expect(prompt).toContain("Άτομο που του/της έκανε ιδιαίτερα καλή εντύπωση");
     expect(prompt).toContain("Θα προτιμούσε να μην τον/την ξαναπετύχει");
-    expect(prompt).toContain(
-      "Κράτησέ το χωριστά από το meet_again, που είναι πρόθεση μελλοντικής επαφής",
-    );
-    expect(prompt).toContain("Μην κατατάσσεις ανθρώπους");
-    expect(prompt).toContain(
-      "Μην το παρουσιάζεις ως καταγγελία, παράπτωμα, κίνδυνο ή αξιολόγηση χαρακτήρα",
-    );
-    expect(prompt).toContain(
-      "Η απουσία directed απάντησης είναι άγνωστο, όχι αρνητική ψήφος",
-    );
-    expect(prompt).not.toContain("Κράτα χωριστές τις τέσσερις βαθμολογίες");
     expect(prompt).not.toContain("Καταλληλότητα παρέας και τραπεζιού");
-  });
-
-  it("asks for structured list fields and soft limits on either question set", () => {
-    for (const questionSet of [
-      POST_EVENT_FEEDBACK_QUESTION_SET_V1,
-      POST_EVENT_FEEDBACK_QUESTION_SET_V2,
-    ]) {
-      const prompt = buildPrompt({
-        questionSetVersion: questionSet.version,
-        questionDefinitions: questionSet.answerQuestions,
-        answers: [answer("event_score", 5)],
-      });
-
-      expect(prompt).toContain("`curiosities`");
-      expect(prompt).toContain("`gossip`");
-      expect(prompt).toContain("Κουτσομπολιό");
-      expect(prompt).toContain("Αξιοπερίεργα");
-      expect(prompt).toContain("`gossip` έως 10");
-      expect(prompt).toContain("`wentWrong` έως 10");
-      expect(prompt).toContain("`wentWell` έως 5");
-      expect(prompt).toContain("`curiosities` έως 5");
-      expect(prompt).toContain("`actions` έως 5");
-      expect(prompt).toContain("μην σταματάς στις 3 γραμμές");
-      expect(prompt).toContain("`actions`");
-      expect(prompt).toContain("`wentWell`");
-      expect(prompt).toContain("`wentWrong`");
-      expect(prompt).toContain("{ text, weight }");
-      expect(prompt).toContain("`low`|`medium`|`high`");
-      expect(prompt).toContain("μην βαφτίζεις κάθε γραμμή `high`");
-      expect(prompt).not.toContain("έως τρεις");
-      expect(prompt).toContain("## Φωνή");
-      expect(prompt).toContain("καθημερινά ελληνικά");
-      expect(prompt).toContain("stand-up");
-      expect(prompt).toContain("μαλακίτσες");
-      expect(prompt).not.toContain("θείτσα");
-      expect(prompt).toContain("είναι ρατσιστής/ρατσίστρια");
-      expect(prompt).toContain("Μην κόβεις juicy gossip");
-      expect(prompt).toContain("κάθε στοιχείο περίπου μία γραμμή");
-      expect(prompt).not.toContain("Όλη η αναφορά κάτω από 200 λέξεις");
-      expect(prompt).not.toContain("έως 20 λέξεις");
-      expect(prompt).toContain("Κάθε γεγονός λέγεται μία φορά");
-      expect(prompt).toContain("Χωρίς emoji");
-      expect(prompt).toContain("Νούμερα (ήδη μετρημένα");
-      expect(prompt).not.toContain("```chart");
-      expect(prompt).not.toContain("### 📊 Η βραδιά σε νούμερα");
-      expect(prompt).not.toContain("Δομή: σύντομη επισκόπηση");
-      expect(prompt).not.toContain(
-        "Γράψε στα ελληνικά για operator που έχει τριάντα δευτερόλεπτα.",
-      );
-    }
-  });
-
-  it("asks what is still missing only when the campaign is partial", () => {
-    const base = {
-      questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V2.version,
-      questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions,
-      answers: [answer("event_score", 4)],
-    };
-
-    const partial = buildPrompt({
-      ...base,
-      isPartial: true,
-      openConversationCount: 2,
-      closedConversationCount: 4,
-    });
-    const complete = buildPrompt({
-      ...base,
-      isPartial: false,
-      openConversationCount: 0,
-      closedConversationCount: 6,
-    });
-
-    expect(partial).toContain(
-      "`missing`: μία γραμμή για το τι δεν καλύπτεται ακόμη επειδή υπάρχουν ανοιχτές συζητήσεις.",
-    );
-    expect(complete).toContain("αλλιώς null");
-    expect(complete).not.toContain(
-      "`missing`: μία γραμμή για το τι δεν καλύπτεται ακόμη επειδή υπάρχουν ανοιχτές συζητήσεις.",
-    );
   });
 
   it("marks flagged notes and unresolved attention evidence for wentWrong", () => {
@@ -186,7 +92,6 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
     expect(prompt).toContain("[flagged for review]");
     expect(prompt).toContain("θέμα ασφαλείας");
     expect(prompt).toContain("«φοβήθηκα λίγο»");
-    expect(prompt).toContain("`wentWrong`");
   });
 });
 

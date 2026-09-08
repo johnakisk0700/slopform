@@ -1,19 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import type { AssistantThread } from "../src/features/assistant/schema";
 import {
-  ASSISTANT_EFFORTS,
-  ASSISTANT_MODELS,
-  ASSISTANT_MODEL_IDS,
   ASSISTANT_TURN_STATUSES,
-  DEFAULT_ASSISTANT_EFFORT,
-  DEFAULT_ASSISTANT_MODEL,
-  DEFAULT_ASSISTANT_SERVICE_TIER,
-  assistantFailureMessage,
   assistantModelSupportsServiceTier,
-  buildAssistantTurnRequest,
   messagesFromThread,
 } from "../src/features/assistant/schema";
-import type { AssistantThread } from "../src/features/assistant/schema";
 
 const THREAD_ID = "2d431350-522a-4a4e-b4db-f9a225601424";
 const TURN_ID = "3f4a7749-98a0-4fea-9ccb-89451a44e481";
@@ -64,52 +56,12 @@ function threadView(status: (typeof ASSISTANT_TURN_STATUSES)[number]) {
 }
 
 describe("assistant durable data contract", () => {
-  it("keeps the model registry and defaults explicit", () => {
-    expect(ASSISTANT_MODEL_IDS).toEqual([
-      "openai/gpt-5.6-luna",
-      "openai/gpt-5.6-terra",
-      "google/gemini-3.6-flash",
-      "qwen/qwen3.7-max",
-    ]);
-    expect(ASSISTANT_MODELS.map(({ id }) => id)).toEqual(ASSISTANT_MODEL_IDS);
-    expect(DEFAULT_ASSISTANT_MODEL).toBe("google/gemini-3.6-flash");
-    expect(ASSISTANT_EFFORTS).toEqual(["low", "medium", "high"]);
-    expect(DEFAULT_ASSISTANT_EFFORT).toBe("low");
-    expect(DEFAULT_ASSISTANT_SERVICE_TIER).toBe("standard");
-  });
-
   it("only enables the OpenAI fast lane", () => {
     expect(assistantModelSupportsServiceTier("openai/gpt-5.6-luna")).toBe(true);
     expect(assistantModelSupportsServiceTier("google/gemini-3.6-flash")).toBe(
       false,
     );
     expect(assistantModelSupportsServiceTier("qwen/qwen3.7-max")).toBe(false);
-  });
-
-  it("builds a validated request and rejects malformed input", () => {
-    expect(
-      buildAssistantTurnRequest(
-        REQUEST_ID,
-        DEFAULT_ASSISTANT_MODEL,
-        "low",
-        "standard",
-        "Review this plan.",
-      ),
-    ).toMatchObject({
-      requestId: REQUEST_ID,
-      model: DEFAULT_ASSISTANT_MODEL,
-      effort: "low",
-      serviceTier: "standard",
-    });
-    expect(() =>
-      buildAssistantTurnRequest(
-        "not-a-uuid",
-        DEFAULT_ASSISTANT_MODEL,
-        "low",
-        "standard",
-        "Review this plan.",
-      ),
-    ).toThrow();
   });
 
   it("flattens each durable turn into user and assistant messages", () => {
@@ -121,14 +73,5 @@ describe("assistant durable data contract", () => {
         status: "succeeded",
       }),
     ]);
-  });
-
-  it("keeps provider details out of operator-facing failure copy", () => {
-    expect(assistantFailureMessage("provider_rejected")).toContain(
-      "rejected this request",
-    );
-    expect(assistantFailureMessage("provider_rejected")).not.toContain(
-      "Provider detail",
-    );
   });
 });

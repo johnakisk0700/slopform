@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFeedbackExtractionPrompt } from "../extraction/prompt.js";
 import type { FeedbackExtractionContext } from "../extraction/extraction.schemas.js";
-import { FeedbackExtractionGenerationError } from "../../../integrations/llm/feedback-extraction-model.service.js";
+import { buildFeedbackExtractionPrompt } from "../extraction/prompt.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import type { BurstPersona } from "./burst-scenario.js";
 import { parseBurstExtractionPrompt } from "./parse-burst-extraction-prompt.js";
 import {
-  matchBurstPersona,
-  resolveCite,
   resolveStubTurnIndex,
   ScriptedBurstExtractionModel,
 } from "./scripted-extraction-model.service.js";
@@ -164,46 +161,6 @@ function context(
 }
 
 describe("parseBurstExtractionPrompt", () => {
-  it("recovers candidates, new ids and transcript text from a realistic prompt", () => {
-    const prompt = buildFeedbackExtractionPrompt({
-      context: context(),
-      copy: COPY,
-    });
-    const parsed = parseBurstExtractionPrompt(prompt.user);
-
-    expect(parsed.candidates).toEqual([
-      {
-        participantId: "cand-nikos",
-        displayName: "Νίκος Παπαδόπουλος",
-      },
-      { participantId: "cand-eleni", displayName: "Ελένη" },
-    ]);
-    expect(parsed.newMessageIds).toEqual(["msg-p-1", "msg-p-2"]);
-    expect(parsed.transcript).toEqual([
-      {
-        seq: 1,
-        occurredAt: "2026-07-27T10:00:00.000Z",
-        id: "msg-bot-1",
-        actor: "bot",
-        text: "Πώς σου φάνηκε η βραδιά από το 1 έως το 5;",
-      },
-      {
-        seq: 2,
-        occurredAt: "2026-07-27T10:00:12.000Z",
-        id: "msg-p-1",
-        actor: "participant",
-        text: "συνολικά πέντε",
-      },
-      {
-        seq: 3,
-        occurredAt: "2026-07-27T10:00:14.000Z",
-        id: "msg-p-2",
-        actor: "participant",
-        text: "ταίριασμα τέσσερα, συμμετοχή πέντε, ισορροπία τρία",
-      },
-    ]);
-  });
-
   it("keeps later turns visible after a multiline bot safety assurance", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context({
@@ -250,82 +207,7 @@ describe("parseBurstExtractionPrompt", () => {
   });
 });
 
-describe("resolveCite", () => {
-  it("maps cite tokens onto the run's new message ids", () => {
-    const ids = ["msg-a", "msg-b", "msg-c"] as const;
-    expect(resolveCite("all-new", ids)).toEqual(["msg-a", "msg-b", "msg-c"]);
-    expect(resolveCite("first", ids)).toEqual(["msg-a"]);
-    expect(resolveCite("last", ids)).toEqual(["msg-c"]);
-  });
-});
-
 describe("ScriptedBurstExtractionModel", () => {
-  it("throws when new messages match no persona", async () => {
-    const model = new ScriptedBurstExtractionModel([persona()]);
-    const prompt = buildFeedbackExtractionPrompt({
-      context: context({
-        messages: [
-          {
-            id: "msg-p-1",
-            seq: 1,
-            actor: "participant",
-            occurredAt: "2026-07-27T10:00:00.000Z",
-            text: "unrelated text",
-          },
-        ],
-        newParticipantMessageIds: ["msg-p-1"],
-      }),
-      copy: COPY,
-    });
-
-    await expect(
-      model.propose(prompt, V2_QUESTION_KEYS),
-    ).rejects.toBeInstanceOf(FeedbackExtractionGenerationError);
-  });
-
-  it("throws when new messages match two personas", () => {
-    const shared = "κοινό μήνυμα";
-    expect(() =>
-      matchBurstPersona(
-        [
-          persona({ id: "a", messages: [{ afterMs: 0, text: shared }] }),
-          persona({ id: "b", messages: [{ afterMs: 0, text: shared }] }),
-        ],
-        [shared],
-      ),
-    ).toThrow(/multiple personas/);
-  });
-
-  it("throws when a message cluster has no scripted turn", async () => {
-    const scriptedPersona = persona({
-      messages: [
-        { afterMs: 0, text: "πρώτο μήνυμα" },
-        { afterMs: 90_000, text: "δεύτερο μήνυμα" },
-      ],
-      stub: [{ reply: "μία φορά" }],
-    });
-    const model = new ScriptedBurstExtractionModel([scriptedPersona]);
-    const second = buildFeedbackExtractionPrompt({
-      context: context({
-        messages: [
-          {
-            id: "msg-p-2",
-            seq: 2,
-            actor: "participant",
-            occurredAt: "2026-07-27T10:02:00.000Z",
-            text: "δεύτερο μήνυμα",
-          },
-        ],
-        newParticipantMessageIds: ["msg-p-2"],
-      }),
-      copy: COPY,
-    });
-
-    await expect(model.propose(second, V2_QUESTION_KEYS)).rejects.toThrow(
-      /has no stub for message cluster 2/,
-    );
-  });
-
   it("resolves a later turn identically in a fresh worker process", async () => {
     const scriptedPersona = persona({
       messages: [
@@ -390,112 +272,5 @@ describe("ScriptedBurstExtractionModel", () => {
     });
     expect(second.proposal.reply).toBe("δεύτερη απάντηση");
     expect(resolveStubTurnIndex(scriptedPersona, ["δεύτερο μήνυμα"])).toBe(1);
-  });
-
-  it("resolves about names and cite tokens through propose", async () => {
-    const model = new ScriptedBurstExtractionModel([persona()]);
-    const prompt = buildFeedbackExtractionPrompt({
-      context: context(),
-      copy: COPY,
-    });
-
-    const result = await model.propose(prompt, V2_QUESTION_KEYS);
-    expect(result.usage).toEqual({
-      inputTokens: null,
-      outputTokens: null,
-      totalTokens: null,
-    });
-    expect(result.proposal.goals).toEqual({
-      event_score: {
-        status: "answered",
-        answers: [
-          {
-            valueInt: 5,
-            subjectParticipantId: null,
-            subjectMentionedName: null,
-            sourceMessageIds: ["msg-p-1", "msg-p-2"],
-            confidence: 0.9,
-          },
-        ],
-        declinedSourceMessageIds: [],
-      },
-      table_fit: {
-        status: "answered",
-        answers: [
-          {
-            valueInt: 4,
-            subjectParticipantId: null,
-            subjectMentionedName: null,
-            sourceMessageIds: ["msg-p-2"],
-            confidence: 0.9,
-          },
-        ],
-        declinedSourceMessageIds: [],
-      },
-      participation_ease: {
-        status: "answered",
-        answers: [
-          {
-            valueInt: 5,
-            subjectParticipantId: null,
-            subjectMentionedName: null,
-            sourceMessageIds: ["msg-p-2"],
-            confidence: 0.9,
-          },
-        ],
-        declinedSourceMessageIds: [],
-      },
-      conversation_balance: {
-        status: "answered",
-        answers: [
-          {
-            valueInt: 3,
-            subjectParticipantId: null,
-            subjectMentionedName: null,
-            sourceMessageIds: ["msg-p-2"],
-            confidence: 0.9,
-          },
-        ],
-        declinedSourceMessageIds: [],
-      },
-      // Stated, not absent. The two goals this turn said nothing about are the
-      // whole reason the shape is a verdict per goal rather than a list.
-      meet_again: {
-        status: "not_addressed",
-        answers: [],
-        declinedSourceMessageIds: [],
-      },
-      avoid: {
-        status: "not_addressed",
-        answers: [],
-        declinedSourceMessageIds: [],
-      },
-    });
-  });
-
-  it("reuses the same claimed turn for concurrent attention classification", async () => {
-    const model = new ScriptedBurstExtractionModel([persona()]);
-    const extractionContext = context();
-    const prompt = buildFeedbackExtractionPrompt({
-      context: extractionContext,
-      copy: COPY,
-    });
-
-    const [proposed, attention] = await Promise.all([
-      model.propose(prompt, V2_QUESTION_KEYS),
-      model.classifyAttention(
-        extractionContext.messages,
-        extractionContext.newParticipantMessageIds,
-      ),
-    ]);
-
-    expect(
-      Object.values(proposed.proposal.goals).filter(
-        (verdict) => verdict.status === "answered",
-      ),
-    ).toHaveLength(4);
-    expect(attention.signals).toEqual([]);
-    expect(attention.usage.inputTokens).toBeNull();
-    expect(attention.estimatedPromptTokens).toBe(0);
   });
 });

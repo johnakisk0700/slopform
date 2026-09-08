@@ -627,12 +627,6 @@ Appended by `extract.service` when **all** hold:
 consumer. There is no matching consumer today — document the contract before one
 exists.
 
-| Marker                                                                                                                                           | Role                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| [`feedback-answers-consumer-boundary.spec.ts`](../../../apps/backend/src/modules/post-event-feedback/feedback-answers-consumer-boundary.spec.ts) | Fails if `feedback_answers` is referenced outside this module / schema / migrations |
-| `matching_hold`                                                                                                                                  | Sticky boolean set when a cited message is respondent-source in the same run        |
-| This section                                                                                                                                     | Why / how to consume                                                                |
-
 Hold is sticky on upsert (`or`). Abuse in a later burst than the answer it
 explains may leave the earlier row unheld. No operator UI to set/clear the hold.
 `matching/` is name-resolution + STOP — not table matching.

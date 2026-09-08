@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  toEventFeedbackVenueSnapshot,
-  toEventVenueView,
-} from "./event-venue.js";
+import { toEventFeedbackVenueSnapshot } from "./event-venue.js";
 
 const EMPTY_VENUE = {
   venueProvider: null,
@@ -20,10 +17,6 @@ const EMPTY_VENUE = {
 } as const;
 
 describe("toEventVenueView", () => {
-  it("keeps a cleared venue null while preserving its monotonic revision", () => {
-    expect(toEventVenueView(EMPTY_VENUE)).toBeNull();
-  });
-
   it("strips Google identity from enabled feedback context", () => {
     const snapshot = toEventFeedbackVenueSnapshot({
       ...EMPTY_VENUE,

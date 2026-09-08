@@ -6,33 +6,18 @@ import type { FeedbackOutboxMessageDeliveryDtoOutputLogConversationState } from 
 import type { FeedbackOutboxQueueDtoOutput } from "../src/api/generated/model/feedbackOutboxQueueDtoOutput";
 import type { FeedbackOutboxQueueDtoOutputItemsItem } from "../src/api/generated/model/feedbackOutboxQueueDtoOutputItemsItem";
 import {
-  describeWaiting,
   deliveryActivityLines,
   formatDelta,
-  formatWaiting,
   isOutboxHistoryRangeKey,
-  isOutboxHistoryStatus,
-  OUTBOX_HISTORY_RANGES,
-  OUTBOX_HISTORY_STATUS_FILTERS,
-  OUTBOX_LOG_ABSENT_COPY,
   outboundConversationStateFacts,
   outboundDecisionFacts,
   outboundDeliveryTimeline,
-  outboundModelProvider,
-  outboundOriginLabel,
+  OUTBOX_HISTORY_RANGES,
   outboxHistoryRangeFrom,
-  outboxHistoryStatusBadge,
-  outboxKindLabel,
   outboxProviderReadingBadge,
   outboxQueueSummary,
-  outboxStatusBadge,
   outboxWaitingTone,
 } from "../src/features/feedback/outboxQueue";
-import {
-  OUTBOX_HISTORY_POLL_INTERVAL_MS,
-  OUTBOX_MESSAGE_POLL_INTERVAL_MS,
-  OUTBOX_QUEUE_POLL_INTERVAL_MS,
-} from "../src/features/feedback/polling";
 
 const ID = "00000000-0000-0000-0000-000000000000";
 const TIME = "2026-07-27T11:41:00.000Z";
@@ -156,37 +141,6 @@ describe("queue age and status", () => {
     expect(outboxWaitingTone(queueItem({ status: "held" }))).toBe("parked");
   });
 
-  it("formats compact ages and spoken screen-reader values", () => {
-    expect(formatWaiting(8)).toBe("8s");
-    expect(formatWaiting(147)).toBe("2m 27s");
-    expect(formatWaiting(3_600)).toBe("1h 00m");
-    expect(formatWaiting(-4)).toBe("0s");
-    expect(describeWaiting(1)).toBe("1 second");
-    expect(describeWaiting(120)).toBe("2 minutes");
-    expect(describeWaiting(147)).toBe("2 minutes 27 seconds");
-  });
-
-  it("uses one status vocabulary for queue rows and history", () => {
-    expect(outboxStatusBadge("pending")).toMatchObject({ label: "Queued" });
-    expect(outboxStatusBadge("ambiguous")).toMatchObject({
-      label: "Reconciliation required",
-      tone: "danger",
-    });
-    expect(outboxStatusBadge("held")).toMatchObject({
-      label: "Held",
-      tone: "warning",
-    });
-    expect(outboxHistoryStatusBadge("sent")).toMatchObject({
-      label: "Sent",
-      tone: "success",
-    });
-    expect(outboxHistoryStatusBadge("failed")).toMatchObject({
-      label: "Failed",
-      tone: "danger",
-    });
-    expect(outboxKindLabel("staff")).toBe("Staff message");
-  });
-
   it("summarizes the total and oldest visible queue item", () => {
     const view: FeedbackOutboxQueueDtoOutput = {
       counts: {
@@ -308,23 +262,6 @@ describe("decision and conversation facts", () => {
     expect(fact(facts, "Goals it recorded")?.value).toBe("none");
   });
 
-  it("keeps free-text failure causes and origin labels readable", () => {
-    expect(outboundOriginLabel("staff_message")).toBe("Staff message");
-    expect(
-      outboundDecisionFacts(
-        log({
-          origin: "extraction_fallback_ack",
-          decision: {
-            cause: "quota_exhausted",
-            origin: "extraction_fallback_ack",
-          },
-        }),
-      ).find(({ label }) => label === "Cause")?.value,
-    ).toBe("quota_exhausted");
-    expect(outboundModelProvider("openai/gpt-4.1")).toBe("openai");
-    expect(outboundModelProvider("google/gemini")).toBe("generic");
-  });
-
   it("reports the conversation snapshot used by the writer", () => {
     const facts = outboundConversationStateFacts(
       conversationState({
@@ -343,10 +280,6 @@ describe("decision and conversation facts", () => {
       "Flagged (2 unresolved) · waiting on a person",
     );
     expect(fact(facts, "Messages")?.value).toBe("4, latest #6");
-  });
-
-  it("states when a row predates the decision log", () => {
-    expect(OUTBOX_LOG_ABSENT_COPY).toContain("before the decision log existed");
   });
 });
 
@@ -427,22 +360,5 @@ describe("history filters and refresh", () => {
     expect(isOutboxHistoryRangeKey("today")).toBe(true);
     expect(isOutboxHistoryRangeKey("fortnight")).toBe(false);
     expect(isOutboxHistoryRangeKey(null)).toBe(false);
-  });
-
-  it("builds status filters from the same labels history rows use", () => {
-    expect(OUTBOX_HISTORY_STATUS_FILTERS[0]?.key).toBe("any");
-    for (const option of OUTBOX_HISTORY_STATUS_FILTERS) {
-      if (option.key !== "any") {
-        expect(option.label).toBe(outboxHistoryStatusBadge(option.key).label);
-      }
-    }
-    expect(isOutboxHistoryStatus("failed")).toBe(true);
-    expect(isOutboxHistoryStatus("exploded")).toBe(false);
-  });
-
-  it("keeps queue and opened-message polling faster than history", () => {
-    expect(OUTBOX_QUEUE_POLL_INTERVAL_MS).toBe(3_000);
-    expect(OUTBOX_MESSAGE_POLL_INTERVAL_MS).toBe(3_000);
-    expect(OUTBOX_HISTORY_POLL_INTERVAL_MS).toBe(5_000);
   });
 });

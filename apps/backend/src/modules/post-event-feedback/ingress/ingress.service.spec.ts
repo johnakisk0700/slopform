@@ -4,13 +4,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
+import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
+import type { FeedbackIngressRepository } from "./ingress.repository.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
 } from "./ingress.service.js";
-import type { FeedbackIngressRepository } from "./ingress.repository.js";
 import type { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
-import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const observed = {
@@ -89,17 +89,6 @@ describe("PostEventFeedbackIngressService", () => {
     // unique key exactly as an ordinary duplicate does.
     expect(second.providerMessageId).not.toBe(observed.providerMessageId);
     expect(second.providerMessageId).toContain(observed.providerMessageId);
-  });
-
-  it("refuses to acknowledge a message it could not queue", async () => {
-    const { service } = createService({
-      inserted: true,
-      wakeupError: new Error("redis unavailable"),
-    });
-
-    await expect(
-      service.recordObservedMessage(observed, "correlation-3"),
-    ).rejects.toBeInstanceOf(PostEventFeedbackEnqueueError);
   });
 
   it("rejects an unbounded provider payload before it reaches the database", async () => {

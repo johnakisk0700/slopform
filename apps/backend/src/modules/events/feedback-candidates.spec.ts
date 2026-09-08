@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isFeedbackCandidateAttendee,
-  selectFeedbackCandidates,
-} from "./feedback-candidates.js";
+import { selectFeedbackCandidates } from "./feedback-candidates.js";
 
 describe("feedback candidates (D16)", () => {
   const attendees = [
@@ -33,23 +30,5 @@ describe("feedback candidates (D16)", () => {
     expect(selected.map((entry) => entry.participantId)).toEqual([
       "aaaaaaa2-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
     ]);
-  });
-
-  it("excludes absent attendees even when they are not the respondent", () => {
-    expect(
-      isFeedbackCandidateAttendee(
-        attendees[2],
-        "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
-      ),
-    ).toBe(false);
-  });
-
-  it("never treats the respondent as their own candidate", () => {
-    expect(
-      isFeedbackCandidateAttendee(
-        attendees[0],
-        "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
-      ),
-    ).toBe(false);
   });
 });

@@ -246,7 +246,8 @@ pnpm --filter @slopform/admin build
 ```
 
 `pnpm check` runs those plus `pnpm api:check`. Vitest (node, no DOM) covers
-delivery invariants, generated-client wiring, `resolveTheme`, and token WCAG AA.
+delivery and stream recovery, event permissions, monetary input conversion and
+API path rebasing. Styling and registry snapshots are not test contracts.
 
 Per vertical slice: permission contract → generated hooks → loading/empty/error →
 a11y → private metadata → narrowest protecting test.

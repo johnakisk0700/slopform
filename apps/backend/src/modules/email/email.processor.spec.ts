@@ -1,15 +1,13 @@
 import { UnrecoverableError, type Job } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
-
-import type { ResendClient } from "../../integrations/resend/resend.client.js";
 import type { EmailOutboxRelayService } from "./email-outbox-relay.service.js";
+import { EmailProcessor } from "./email.processor.js";
 import {
   EMAIL_JOB_NAMES,
   type EmailJobData,
   type EmailJobName,
 } from "./email.schemas.js";
 import type { EmailService } from "./email.service.js";
-import { EmailProcessor } from "./email.processor.js";
 
 const deliveryId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const outboxEventId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
@@ -34,41 +32,6 @@ function job(overrides?: {
 }
 
 describe("EmailProcessor", () => {
-  it("loads only authoritative identifiers and records the disabled transport", async () => {
-    const email = { processWithoutProvider: vi.fn() };
-    const processor = new EmailProcessor(
-      email as unknown as EmailService,
-      { relay: vi.fn() } as unknown as EmailOutboxRelayService,
-    );
-
-    await expect(processor.process(job())).resolves.toBeUndefined();
-    expect(email.processWithoutProvider).toHaveBeenCalledWith(
-      deliveryId,
-      outboxEventId,
-      expect.any(Date),
-      expect.any(Date),
-    );
-  });
-
-  it("hands configured delivery to the concrete Resend client", async () => {
-    const email = { processWithProvider: vi.fn() };
-    const resend = { sendEmail: vi.fn() } as unknown as ResendClient;
-    const processor = new EmailProcessor(
-      email as unknown as EmailService,
-      { relay: vi.fn() } as unknown as EmailOutboxRelayService,
-      resend,
-    );
-
-    await expect(processor.process(job())).resolves.toBeUndefined();
-    expect(email.processWithProvider).toHaveBeenCalledWith(
-      deliveryId,
-      outboxEventId,
-      expect.any(Date),
-      expect.any(Date),
-      expect.any(Function),
-    );
-  });
-
   it("rejects malformed payloads, unknown names and mismatched job ids", async () => {
     const email = { processWithoutProvider: vi.fn() };
     const processor = new EmailProcessor(

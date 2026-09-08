@@ -1,53 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EVENT_STATUSES,
   acceptsNewAttendees,
-  eventStatusColor,
-  eventStatusLabel,
-  eventTransitionLabel,
   isEventEditable,
   isEventVenueEditable,
 } from "../src/features/event/eventStatus";
 import {
-  VENUE_PRICE_RANGE_MAX,
-  VENUE_PRICE_RANGE_STEP,
-  formatVenuePriceMajorLabel,
-  googleMapsPlaceUrl,
-  parseVenuePriceMajor,
-  snapVenuePriceMajor,
-  venueMajorToMinor,
-} from "../src/features/event/venue";
-import {
   selectionFromPlaceDetails,
   selectionFromPrediction,
 } from "../src/features/event/googlePlacePrediction";
-import { nextEventStatuses } from "../src/features/event/nextEventStatuses";
+import {
+  googleMapsPlaceUrl,
+  venueMajorToMinor,
+} from "../src/features/event/venue";
 import {
   compareParticipantsByName,
   matchesParticipantQuery,
 } from "../src/features/participants/search";
 
 describe("event status rules", () => {
-  it("gives every status a readable label and distinct colour", () => {
-    expect(
-      EVENT_STATUSES.every((status) => eventStatusLabel(status) !== status),
-    ).toBe(true);
-    expect(new Set(EVENT_STATUSES.map(eventStatusColor)).size).toBe(
-      EVENT_STATUSES.length,
-    );
-  });
-
-  it("labels reachable transitions as actions", () => {
-    for (const status of EVENT_STATUSES) {
-      for (const target of nextEventStatuses(status)) {
-        expect(eventTransitionLabel(target)).not.toBe(eventStatusLabel(target));
-      }
-    }
-    expect(eventTransitionLabel("cancelled")).toBe("Cancel event");
-    expect(eventTransitionLabel("finished")).toBe("Mark finished");
-  });
-
   it("keeps edit and attendee rules explicit at terminal states", () => {
     expect(isEventEditable("draft")).toBe(true);
     expect(isEventEditable("scheduled")).toBe(true);
@@ -82,17 +53,6 @@ describe("venue helpers", () => {
     expect(venueMajorToMinor("3500", "JPY")).toBe(3500);
     expect(venueMajorToMinor("-1", "EUR")).toBeNull();
     expect(venueMajorToMinor("nonsense", "EUR")).toBeNull();
-  });
-
-  it("snaps and formats the venue price range", () => {
-    expect(VENUE_PRICE_RANGE_STEP).toBe(5);
-    expect(VENUE_PRICE_RANGE_MAX).toBe(150);
-    expect(snapVenuePriceMajor(37)).toBe(35);
-    expect(snapVenuePriceMajor(38)).toBe(40);
-    expect(snapVenuePriceMajor(200)).toBe(150);
-    expect(parseVenuePriceMajor("")).toBeNull();
-    expect(parseVenuePriceMajor("42")).toBe(40);
-    expect(formatVenuePriceMajorLabel(35, "EUR")).toContain("35");
   });
 });
 

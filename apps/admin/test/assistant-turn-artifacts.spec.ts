@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import { formatEstimatedAssistantCost } from "../src/features/assistant/cost";
-import {
-  calculateAssistantQuestionScrollTop,
-  calculateAssistantReplyMinHeight,
-} from "../src/features/assistant/layout";
-import { messagesFromThread } from "../src/features/assistant/schema";
 import type { AssistantThread } from "../src/features/assistant/schema";
+import { messagesFromThread } from "../src/features/assistant/schema";
 
 describe("assistant turn artifacts", () => {
   it("keeps reasoning, tool calls and usage on a settled message", () => {
@@ -64,16 +58,5 @@ describe("assistant turn artifacts", () => {
       toolCalls: [expect.objectContaining({ toolCallId: "call-1" })],
       usage: { estimatedCostEurMicros: 42 },
     });
-  });
-
-  it("reserves room for the newest reply and computes one scroll target", () => {
-    expect(calculateAssistantReplyMinHeight(700, 40)).toBe(636);
-    expect(calculateAssistantReplyMinHeight(260, 40)).toBe(300);
-    expect(calculateAssistantQuestionScrollTop(24, 129, 73)).toBe(68);
-  });
-
-  it("formats small costs without claiming false precision", () => {
-    expect(formatEstimatedAssistantCost(42)).toBe("<€0.001");
-    expect(formatEstimatedAssistantCost(12_340)).toContain("€0.0123");
   });
 });

@@ -236,62 +236,6 @@ describe("AssistantService", () => {
     ).rejects.toBeInstanceOf(AssistantProviderUnavailableError);
   });
 
-  it("accepts Qwen3.7 Max only when OpenRouter is configured", async () => {
-    const { repository, service } = createService({ openRouter: true });
-    repository.createThreadWithTurn!.mockResolvedValue({
-      created: true,
-      thread,
-      turn: { ...turn, model: "qwen/qwen3.7-max", effort: "high" },
-    });
-
-    await service.createThread(
-      {
-        requestId: turn.requestId,
-        model: "qwen/qwen3.7-max",
-        effort: "high",
-        serviceTier: "standard",
-        content: "Hello",
-      },
-      "user_owner",
-    );
-
-    expect(repository.createThreadWithTurn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: "qwen/qwen3.7-max",
-        effort: "high",
-        serviceTier: "standard",
-      }),
-    );
-  });
-
-  it("accepts Luna only when OpenAI direct is configured", async () => {
-    const { repository, service } = createService({ openAi: true });
-    repository.createThreadWithTurn!.mockResolvedValue({
-      created: true,
-      thread,
-      turn: { ...turn, model: "openai/gpt-5.6-luna", effort: "high" },
-    });
-
-    await service.createThread(
-      {
-        requestId: turn.requestId,
-        model: "openai/gpt-5.6-luna",
-        effort: "high",
-        serviceTier: "standard",
-        content: "Hello",
-      },
-      "user_owner",
-    );
-
-    expect(repository.createThreadWithTurn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: "openai/gpt-5.6-luna",
-        effort: "high",
-        serviceTier: "standard",
-      }),
-    );
-  });
-
   it("returns an existing durable replay before checking current provider availability", async () => {
     const { repository, service } = createService();
     repository.findRequestForOwner!.mockResolvedValue({ thread, turn });
@@ -308,43 +252,6 @@ describe("AssistantService", () => {
       turn: { id: turn.id, model: "google/gemini-3.6-flash", effort: "low" },
     });
     expect(repository.createThreadWithTurn).not.toHaveBeenCalled();
-  });
-
-  it("uses MongoDB for public reads after materialization", async () => {
-    const { repository, service } = createService({ openRouter: true });
-    await service.createThread(
-      { requestId: turn.requestId, content: "Hello" },
-      "user_owner",
-    );
-    repository.findThreadRecordForOwner!.mockClear();
-
-    await expect(
-      service.getThread(thread.id, "user_owner"),
-    ).resolves.toMatchObject({
-      id: thread.id,
-      turns: [{ user: { content: "Hello" } }],
-    });
-    expect(repository.findThreadRecordForOwner).not.toHaveBeenCalled();
-  });
-
-  it("lists from compact MongoDB summaries without reloading full PostgreSQL content", async () => {
-    const { repository, service } = createService({ openRouter: true });
-    await service.createThread(
-      { requestId: turn.requestId, content: "Hello" },
-      "user_owner",
-    );
-    repository.findThreadRecordForOwner!.mockClear();
-
-    await expect(service.list("user_owner")).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          id: thread.id,
-          lastModel: "google/gemini-3.6-flash",
-          lastStatus: "queued",
-        }),
-      ],
-    });
-    expect(repository.findThreadRecordForOwner).not.toHaveBeenCalled();
   });
 
   it("returns an existing append replay before checking current provider availability", async () => {

@@ -1,5 +1,5 @@
 import type { ConfigService } from "@nestjs/config";
-import type { Collection, Db, MongoClient } from "mongodb";
+import type { Db, MongoClient } from "mongodb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Environment } from "../config/environment.js";
@@ -10,23 +10,6 @@ afterEach(() => {
 });
 
 describe("MongoService", () => {
-  it("connects lazily once and returns collections from the selected database", async () => {
-    const collection = {} as Collection;
-    const db = {
-      collection: vi.fn().mockReturnValue(collection),
-    } as unknown as Db;
-    const client = createClient({ db });
-    const service = createService(client);
-
-    await expect(service.collection("conversation_threads")).resolves.toBe(
-      collection,
-    );
-    await expect(service.collection("conversation_threads")).resolves.toBe(
-      collection,
-    );
-    expect(client.connect).toHaveBeenCalledOnce();
-  });
-
   it("bounds and coalesces readiness pings without an external MongoDB", async () => {
     vi.useFakeTimers();
     const command = vi.fn().mockReturnValue(new Promise(() => undefined));

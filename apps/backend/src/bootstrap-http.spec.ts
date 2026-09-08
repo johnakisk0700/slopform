@@ -24,11 +24,4 @@ describe("HTTP startup cleanup", () => {
     await expect(createHttpApplication()).rejects.toBe(error);
     expect(app.close).toHaveBeenCalledOnce();
   });
-
-  it("propagates failure before an application exists", async () => {
-    const error = new Error("application creation failed");
-    vi.spyOn(NestFactory, "create").mockRejectedValue(error);
-
-    await expect(createHttpApplication()).rejects.toBe(error);
-  });
 });

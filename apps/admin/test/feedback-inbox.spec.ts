@@ -11,43 +11,30 @@ import {
 import {
   campaignSummaryActionLabel,
   campaignSummaryElapsedLabel,
+  campaignSummaryPartialWarning,
   campaignSummaryPendingDetail,
   campaignSummaryPendingPhase,
-  campaignSummaryPartialWarning,
   campaignSummaryStatusLabel,
 } from "../src/features/feedback/campaignSummary";
 import {
-  closedConversationLine,
-  conversationBadges,
   conversationReplyIndicator,
-  conversationRowBadges,
-  formatExactTimestamp,
-  groupConversations,
   goalProgress,
-  hasExplicitConversationSelection,
   resolveSelectedConversationId,
-  sameTranscriptMinute,
   sortConversationsForInbox,
-  transcriptMessageAnchorId,
 } from "../src/features/feedback/conversationView";
 import {
   answerCandidateChoices,
   contradictedQuestionKeys,
-  directedQuestionTone,
   DIRECTED_QUESTION_KEYS,
+  directedQuestionTone,
   isDirectedQuestion,
   recordAnswerDescription,
 } from "../src/features/feedback/directedAnswers";
+import { readingStatusLines } from "../src/features/feedback/extractionStatus";
 import {
   awaitingDeliveryReason,
   deliveryBadge,
   isAwaitingDelivery,
-  lifecycleBadge,
-  participantLabel,
-  QUESTION_KEYS,
-  questionLabel,
-  staffOriginBadge,
-  UNKNOWN_PARTICIPANT_LABEL,
 } from "../src/features/feedback/labels";
 import {
   CAMPAIGN_SUMMARY_POLL_INTERVAL_MS,
@@ -57,16 +44,10 @@ import {
   RESULTS_POLL_INTERVAL_MS,
 } from "../src/features/feedback/polling";
 import {
-  STAFF_CLOSE_REASONS,
-  staffCloseReasonLabel,
-  staffCloseSummary,
-} from "../src/features/feedback/staffClose";
-import {
   createStaffMessageDraft,
   editStaffMessageDraft,
   settleStaffMessageDraft,
 } from "../src/features/feedback/staffMessageDraft";
-import { readingStatusLines } from "../src/features/feedback/extractionStatus";
 
 const ID = "00000000-0000-0000-0000-000000000000";
 const BASE_TIME = "2026-07-20T10:00:00.000Z";
@@ -134,13 +115,6 @@ function reading(overrides: Partial<ReadingInput> = {}): ReadingInput {
 }
 
 describe("participant and delivery labels", () => {
-  it("uses the agreed fallback only for unresolved participant names", () => {
-    expect(UNKNOWN_PARTICIPANT_LABEL).toBe("άγνωστος συμμετέχων");
-    expect(participantLabel(null)).toBe(UNKNOWN_PARTICIPANT_LABEL);
-    expect(participantLabel("  ")).toBe(UNKNOWN_PARTICIPANT_LABEL);
-    expect(participantLabel("Ρούλα")).toBe("Ρούλα");
-  });
-
   it("lets provider status outrank an outbox state", () => {
     expect(deliveryBadge(delivery({ deliveryStatus: "read" }))).toEqual(
       expect.objectContaining({ label: "Read", tone: "success" }),
@@ -163,23 +137,6 @@ describe("participant and delivery labels", () => {
     }
     expect(isAwaitingDelivery(delivery({ outboxStatus: "sent" }))).toBe(false);
     expect(awaitingDeliveryReason(null)).toBeNull();
-  });
-
-  it("keeps ordinary delivery quiet and reserves a badge for exceptional outcomes", () => {
-    expect(deliveryBadge(delivery({ outboxStatus: "sent" }))).toBeNull();
-    expect(deliveryBadge(delivery({ outboxStatus: "cancelled" }))).toEqual(
-      expect.objectContaining({ placement: "badge", label: "Cancelled" }),
-    );
-    expect(deliveryBadge(delivery({ outboxStatus: "pending" }))).toEqual(
-      expect.objectContaining({ placement: "inline", detail: "not sent yet" }),
-    );
-  });
-
-  it("labels a staff note separately from extracted conversation notes", () => {
-    expect(staffOriginBadge("staff")).toEqual(
-      expect.objectContaining({ label: "Staff note", tone: "accent" }),
-    );
-    expect(staffOriginBadge("conversation")).toBeNull();
   });
 });
 
@@ -213,45 +170,6 @@ describe("conversation progress and grouping", () => {
     ]);
     expect(sorted.map(({ id }) => id)).toStrictEqual(["attention", "a", "z"]);
   });
-
-  it("drops empty groups and preserves the shared group titles", () => {
-    const groups = groupConversations([
-      conversation({ id: "open" }),
-      conversation({
-        id: "attention",
-        needsAttention: true,
-      }),
-      conversation({
-        id: "closed",
-        lifecycle: { state: "closed", reason: "completed" },
-      }),
-    ]);
-    expect(groups.map(({ key, title }) => [key, title])).toStrictEqual([
-      ["attention", "Needs attention"],
-      ["open", "Open"],
-      ["closed", "Closed"],
-    ]);
-  });
-
-  it("removes redundant row badges while retaining exceptional lifecycle state", () => {
-    const attention = conversation({ needsAttention: true });
-    expect(conversationRowBadges(attention, "attention")).toStrictEqual([]);
-    expect(
-      conversationRowBadges(
-        conversation({ lifecycle: { state: "closed", reason: "stopped" } }),
-        "closed",
-      ),
-    ).toEqual([expect.objectContaining({ label: "Stopped" })]);
-    expect(
-      conversationBadges(
-        conversation({ control: { mode: "human", source: "staff_action" } }),
-      ),
-    ).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ label: "Human control" }),
-      ]),
-    );
-  });
 });
 
 describe("conversation selection and transcript", () => {
@@ -278,37 +196,6 @@ describe("conversation selection and transcript", () => {
       ),
     ).toBe("b");
     expect(resolveSelectedConversationId([], "gone")).toBeNull();
-  });
-
-  it("distinguishes URL selection and names transcript anchors consistently", () => {
-    expect(hasExplicitConversationSelection("a", "a")).toBe(true);
-    expect(hasExplicitConversationSelection("gone", "a")).toBe(false);
-    expect(transcriptMessageAnchorId("message-7")).toBe(
-      "transcript-message-message-7",
-    );
-  });
-
-  it("groups messages by local display minute and rejects malformed timestamps", () => {
-    expect(
-      sameTranscriptMinute(
-        "2026-07-20T10:01:01.000Z",
-        "2026-07-20T10:01:59.000Z",
-      ),
-    ).toBe(true);
-    expect(
-      sameTranscriptMinute(
-        "2026-07-20T10:01:01.000Z",
-        "2026-07-20T10:02:01.000Z",
-      ),
-    ).toBe(false);
-    expect(sameTranscriptMinute("not-a-date", "2026-07-20T10:01:01.000Z")).toBe(
-      false,
-    );
-  });
-
-  it("formats invalid timestamps as an explicit placeholder", () => {
-    expect(formatExactTimestamp("not-a-date")).toBe("—");
-    expect(formatExactTimestamp("2026-07-20T10:01:02.345Z")).toContain("2026");
   });
 });
 
@@ -518,23 +405,6 @@ describe("operator answer and close actions", () => {
       }),
     ).toContain("withdrawn");
   });
-
-  it("uses one reason vocabulary for staff closes", () => {
-    expect(STAFF_CLOSE_REASONS).toStrictEqual([
-      "abusive",
-      "unresponsive",
-      "handled_offline",
-      "duplicate",
-      "other",
-    ]);
-    expect(staffCloseReasonLabel("handled_offline")).toBe("Handled offline");
-    expect(staffCloseSummary({ reason: "abusive", note: null })).toBe(
-      "Closed as abusive",
-    );
-    expect(staffCloseSummary({ reason: "other", note: "Called back" })).toBe(
-      "Closed as other — Called back",
-    );
-  });
 });
 
 describe("campaign summaries and drafts", () => {
@@ -600,35 +470,5 @@ describe("campaign summaries and drafts", () => {
     expect(
       settleStaffMessageDraft(written, "draft-2", true, () => "draft-3"),
     ).toEqual({ text: "", clientMessageId: "draft-3" });
-  });
-});
-
-describe("questionnaire labels", () => {
-  it("keeps current V2 order while retaining the historical V1 key", () => {
-    expect(QUESTION_KEYS).toStrictEqual([
-      "event_score",
-      "table_fit",
-      "participation_ease",
-      "conversation_balance",
-      "meet_again",
-      "avoid",
-      "liked",
-    ]);
-    expect(questionLabel("conversation_balance")).toBe("Conversation balance");
-    expect(lifecycleBadge({ state: "closed", reason: "stopped" })).toEqual(
-      expect.objectContaining({ label: "Stopped", tone: "danger" }),
-    );
-    expect(
-      closedConversationLine(
-        conversation({ lifecycle: { state: "open", reason: null } }),
-      ),
-    ).toBeNull();
-    expect(
-      closedConversationLine({
-        ...conversation({
-          lifecycle: { state: "closed", reason: "completed" },
-        }),
-      }),
-    ).toBe("Completed — no messages can be sent.");
   });
 });

@@ -75,6 +75,13 @@ Use the language and installed libraries before writing another framework.
   persistence, retries, provider failures and regressions. Do not test source
   strings, exact utility classes, private wiring or the schema library itself.
   A reversible visual change does not need another test suite.
+  Every retained case must name either a business contract or a mechanical
+  guarantee and the failure it would catch. Constructing an object or listing
+  registered providers is insufficient. Startup tests earn their place through
+  observable failure, cleanup or availability behavior. A mock that implements
+  a lock, retry or uniqueness rule cannot prove the real mechanism has it.
+  In mixed suites, delete empty assertions and retain the meaningful cases;
+  neither coverage percentages nor file counts are acceptance targets.
 - Fewer lines are desirable when they remove work the reader must understand.
   Do not compress expressions, weaken types, hide errors or move complexity
   into generic utilities to improve the diff count.

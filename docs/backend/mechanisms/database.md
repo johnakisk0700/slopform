@@ -199,8 +199,10 @@ No global seed command until a repeatable dataset exists. Tests create
 deterministic fixtures in an isolated database and clean with rollback or
 exact-key deletion.
 
-- Unit tests: client defaults, lifecycle, readiness coalescing, timeout.
-- Database package tests include `drizzle-kit check`.
+- Unit tests: failure cleanup, readiness coalescing and bounded waits.
+- The database package test command runs `drizzle-kit check` for migration
+  history. Runtime persistence guarantees belong to actual database tests,
+  not schema declaration snapshots.
 - `FEEDBACK_POSTGRES_TEST_URL=postgresql://… pnpm test:feedback:postgres`
   requires an explicitly disposable database, applies migrations, then checks
   the conversation SQL adapter, concurrent appends, rollback, execution fencing,
