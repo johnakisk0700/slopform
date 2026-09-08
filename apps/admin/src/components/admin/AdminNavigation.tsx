@@ -1,7 +1,6 @@
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import {
-  BookOpen,
   Bot,
   Calendar,
   CreditCard,
@@ -43,9 +42,6 @@ const NAV_ITEMS: readonly NavItem[] = [
   // `aria-current` at once: only `/admin` is `end`-matched here, so
   // `/admin/feedback` stays active for anything below it.
   { label: "Outbound queue", Icon: SendHorizontal, to: "/admin/outbound" },
-  // Last on purpose: it explains the areas above rather than being one of them,
-  // and appending it leaves every existing numeral where it was.
-  { label: "How feedback works", Icon: BookOpen, to: "/admin/docs/feedback" },
 ];
 
 /**

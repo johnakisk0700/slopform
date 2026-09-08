@@ -70,11 +70,6 @@ const FeedbackOutboxPage = lazy(async () => {
   return { default: module.FeedbackOutboxPage };
 });
 
-const FeedbackMechanismPage = lazy(async () => {
-  const module = await import("./routes/FeedbackMechanismPage");
-  return { default: module.FeedbackMechanismPage };
-});
-
 /**
  * The cookbook gallery — development only, and gated so production never ships
  * it. `import.meta.env.DEV` is a literal Vite replaces with `false` when it
@@ -205,17 +200,6 @@ function AppRoutes() {
             element={
               <LazyAdminRoute>
                 <FeedbackOutboxPage />
-              </LazyAdminRoute>
-            }
-          />
-          {/* Static explanation of the feedback mechanism. Its own `docs/`
-              segment for the same reason as `outbound`: it is not a campaign,
-              and `feedback/:campaignId` would swallow anything nested there. */}
-          <Route
-            path="docs/feedback"
-            element={
-              <LazyAdminRoute>
-                <FeedbackMechanismPage />
               </LazyAdminRoute>
             }
           />
