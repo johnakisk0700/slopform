@@ -37,7 +37,7 @@ import type { FeedbackConversationLifecycleReason } from "../post-event-feedback
  * This file holds types and identifiers only. The personas live in
  * `burst-personas.ts`, the deterministic model in
  * `scripted-extraction-model.service.ts`, and the runner in
- * `scripts/run-feedback-burst.mjs`.
+ * `harness/run-feedback-burst.mjs`.
  */
 
 /** One campaign per dinner. The slug is the seed identity, not a display name. */

@@ -22,7 +22,6 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src && drizzle-kit check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -222,3 +222,5 @@ Bull Board, or cross-domain `utils/` drawer.
 - [Drizzle PostgreSQL](https://orm.drizzle.team/docs/get-started-postgresql), [transactions](https://orm.drizzle.team/docs/transactions), [Kit overview](https://orm.drizzle.team/docs/kit-overview)
 - [BullMQ idempotent jobs](https://docs.bullmq.io/patterns/idempotent-jobs), [job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs)
 - [Node release lines](https://nodejs.org/en/about/previous-releases), [TypeScript 7 status](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/), [Vitest support](https://vitest.dev/guide/)
+
+Custom rehearsal tools, fixtures and scenario doubles live in [the harness workspace](../harness/README.md). `pnpm test` and `pnpm typecheck` include that workspace; backend builds exclude it. Backend and database have no separate lint task: TypeScript runs once through `typecheck`.

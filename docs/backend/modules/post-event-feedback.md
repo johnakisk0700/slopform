@@ -866,7 +866,7 @@ Slots are durable namespaces — never cleanup targets in production. Local rese
 rejected in production.
 
 Production paid rehearsal: tunnel PG/Redis, Clerk JWT with `azp` via
-[`scripts/feedback-burst-prod-auth.mjs`](../../../scripts/feedback-burst-prod-auth.mjs),
+[`harness/feedback-burst-prod-auth.mjs`](../../../harness/feedback-burst-prod-auth.mjs),
 close leftover campaigns over HTTP, unused fixture slot, teardown revoke.
 Details and learning:
 [`post-event-feedback-rehearsal-history.md`](post-event-feedback-rehearsal-history.md).

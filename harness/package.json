@@ -1,0 +1,23 @@
+{
+  "name": "@slopform/harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run && node --test \"*.spec.mjs\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.1.28",
+    "@nestjs/config": "4.0.4",
+    "@slopform/database": "workspace:*",
+    "bullmq": "5.80.10",
+    "drizzle-orm": "0.45.2",
+    "@slopform/backend": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}

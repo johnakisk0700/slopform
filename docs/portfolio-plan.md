@@ -82,7 +82,7 @@ Do not claim response rates or participant motivation have been validated.
 Synthetic fixture authoring is the current follow-up: Astra event/profile design,
 Luna xhigh dialogue batches for 100 participants and deterministic JSON message
 projection. This does not implement the workshop questionnaire or run extraction;
-the [fixture package](../fixtures/workshop-feedback/README.md) states the import
+the [fixture package](../harness/fixtures/workshop-feedback/README.md) states the import
 boundary and validation commands. The Notion scenario task remains in progress.
 
 The bounded asynchronous backend analyzes existing campaign feedback. See

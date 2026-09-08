@@ -12,16 +12,15 @@
     "predev:worker": "pnpm --filter @slopform/database build && pnpm run build",
     "dev:worker": "concurrently --kill-others --names compiler,worker \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch ./dist/main-worker.js\"",
     "import:wordpress-profiles": "node ./dist/cli/import-wordpress-profiles.js",
-    "lint": "tsc -p tsconfig.json --noEmit",
     "openapi:emit": "node ./dist/cli/emit-openapi.js",
     "start:http": "node ./dist/main-http.js",
     "start:worker": "node ./dist/main-worker.js",
     "coverage": "vitest run --coverage",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:postgres": "node ../../scripts/test-feedback-postgres.mjs",
-    "workshop:compile": "node ../../scripts/workshop-scenarios.mjs build",
-    "workshop:check": "node ../../scripts/workshop-scenarios.mjs check"
+    "test:postgres": "node ../../harness/test-feedback-postgres.mjs",
+    "workshop:compile": "node ../../harness/workshop-scenarios.mjs build",
+    "workshop:check": "node ../../harness/workshop-scenarios.mjs check"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.18",
