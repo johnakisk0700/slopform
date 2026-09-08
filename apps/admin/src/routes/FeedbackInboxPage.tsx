@@ -71,16 +71,7 @@ import { usePageMeta } from "../lib/usePageMeta";
 
 type ConversationAction = "take-over" | "resume-bot" | "close";
 
-/**
- * The post-event feedback inbox: one campaign's conversations in the
- * three-pane helpdesk layout (U1).
- *
- * The campaign id comes from the route because every backend operation on this
- * screen is campaign-scoped, and selection lives in `?conversation=` so a
- * thread can be linked to, reloaded and stepped back through without losing
- * the list beside it. Polling (U3) keeps the list and the open thread current;
- * TanStack Query pauses those intervals on its own while the tab is hidden.
- */
+/** Campaign inbox with URL selection and polling of the active conversation. */
 export function FeedbackInboxPage() {
   const { campaignId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -110,25 +101,13 @@ export function FeedbackInboxPage() {
   });
 
   const campaign = listQuery.data?.campaign;
-  const conversations = useMemo(
-    () => listQuery.data?.conversations ?? [],
+  const visible = useMemo(
+    () => sortConversationsForInbox(listQuery.data?.conversations ?? []),
     [listQuery.data?.conversations],
   );
 
-  const visible = useMemo(
-    () => sortConversationsForInbox(conversations),
-    [conversations],
-  );
-
   const requestedId = searchParams.get("conversation");
-  /**
-   * Desktop auto-selects the first row so the right pane is never empty, but
-   * that must not chase `visible[0]` across polls — the list is ordered by
-   * attention then latest activity, so a new message would otherwise yank the
-   * open transcript. The URL is the explicit pin; this ref is the sticky
-   * fallback when the URL is quiet. Writing the fallback into `?conversation=`
-   * would open the detail on mobile (`threadOpenOnNarrow`), so it stays local.
-   */
+  // Keep desktop auto-selection stable across polls without opening mobile detail.
   const stickySelectedRef = useRef<string | null>(null);
   const selectedId = resolveSelectedConversationId(
     visible,
@@ -137,29 +116,12 @@ export function FeedbackInboxPage() {
   );
   stickySelectedRef.current = selectedId;
 
-  /**
-   * Master/detail below `lg`, and the URL already holds the state for it.
-   *
-   * `selectedId` falls back to the first row so the wide layout never shows an
-   * empty right pane, which makes it useless as a «has the operator opened a
-   * thread» flag — it is true on arrival. `requestedId` is the honest one: null
-   * until someone picks a conversation.
-   *
-   * Reading it off the query string rather than a `useState` is what lets the
-   * back gesture return to the list and a pasted link open straight to the
-   * thread. A stale id is not explicit selection: treating it as one would hide
-   * the list on mobile and open the first unrelated conversation instead.
-   */
+  // Only a valid explicit URL selection opens the narrow detail view.
   const threadOpenOnNarrow = hasExplicitConversationSelection(
     requestedId,
     selectedId,
   );
-  /**
-   * Narrow-thread cover. Same idea as `?conversation=`: the URL is the state
-   * so the platform back gesture steps out of the cover before it leaves the
-   * thread. Push on open, replace on close — a direct link with both params
-   * still works, and minimise does not leave a stale cover entry on the stack.
-   */
+  // Push the cover on open; replace on close so Back exits it before the thread.
   const fullscreenOnNarrow =
     threadOpenOnNarrow && searchParams.get("fullscreen") === "1";
   const selectedRow = useMemo(
@@ -182,19 +144,15 @@ export function FeedbackInboxPage() {
   const setConversationFullscreen = useCallback(
     (open: boolean) => {
       const next = new URLSearchParams(searchParams);
+      if ((next.get("fullscreen") === "1") === open) {
+        return;
+      }
       if (open) {
-        if (next.get("fullscreen") === "1") {
-          return;
-        }
         next.set("fullscreen", "1");
-        setSearchParams(next);
-        return;
+      } else {
+        next.delete("fullscreen");
       }
-      if (next.get("fullscreen") !== "1") {
-        return;
-      }
-      next.delete("fullscreen");
-      setSearchParams(next, { replace: true });
+      setSearchParams(next, { replace: !open });
     },
     [searchParams, setSearchParams],
   );
@@ -204,17 +162,14 @@ export function FeedbackInboxPage() {
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 64rem)");
     function dropFullscreenOnDesktop() {
-      if (!desktop.matches || searchParams.get("fullscreen") !== "1") {
-        return;
+      if (desktop.matches) {
+        setConversationFullscreen(false);
       }
-      const next = new URLSearchParams(searchParams);
-      next.delete("fullscreen");
-      setSearchParams(next, { replace: true });
     }
     dropFullscreenOnDesktop();
     desktop.addEventListener("change", dropFullscreenOnDesktop);
     return () => desktop.removeEventListener("change", dropFullscreenOnDesktop);
-  }, [searchParams, setSearchParams]);
+  }, [setConversationFullscreen]);
 
   const detailQuery = useGetFeedbackConversation(campaignId, selectedId ?? "", {
     query: {
@@ -541,11 +496,6 @@ export function FeedbackInboxPage() {
     }
   }
 
-  const existingParticipantIds = useMemo(
-    () => new Set(conversations.map((row) => row.respondentParticipantId)),
-    [conversations],
-  );
-
   // D17 candidates for the list's NOT STARTED group: attendees marked present
   // with no conversation yet. Read from the event's own attendee list — the
   // backend re-checks eligibility on start, so this is display, not the rule.
@@ -556,6 +506,9 @@ export function FeedbackInboxPage() {
     },
   });
   const startCandidates = useMemo(() => {
+    const existingParticipantIds = new Set(
+      visible.map((row) => row.respondentParticipantId),
+    );
     const attendees = eventQuery.data?.attendees ?? [];
     return attendees
       .filter(
@@ -568,7 +521,7 @@ export function FeedbackInboxPage() {
         label: attendee.preferredName ?? attendee.emailNormalized,
       }))
       .sort((left, right) => left.label.localeCompare(right.label, "el"));
-  }, [eventQuery.data?.attendees, existingParticipantIds]);
+  }, [eventQuery.data?.attendees, visible]);
 
   const listError = listQuery.isError
     ? apiErrorMessage(listQuery.error, "Failed to load conversations.")
@@ -583,30 +536,9 @@ export function FeedbackInboxPage() {
   }
 
   return (
-    /* The app-wide page root, and on this screen it holds one child.
-
-       Every other route spends the `gap-6` here to part a bare nameplate from
-       the cards below it. This one has no bare nameplate left: the standing
-       facts about the campaign are a framed band that sits with the title, so
-       the first gap under the title group lands between two bordered things and
-       a 24px one reads as a hole. Chasing it around is what happened twice —
-       the title floating 24px above its own facts, then the frame stranded 24px
-       above the summary. There is nothing to part.
-
-       So the whole column runs on the card rhythm and the only tighter gap is
-       the one that binds the name to its facts. */
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
-        {/* The campaign's nameplate: the way out, what you can do to it, its
-            name, and the standing facts about it — one block, bound at `gap-3`.
-            Tighter than the rhythm around it, which is the whole signal: the
-            frame under the title is not the next card, it is what the title
-            means.
-
-            Below `lg` it stands down while a thread is open: on a phone the
-            list and the thread are two screens, and leaving this stacked above
-            the thread meant ~500px of campaign chrome before the first message
-            of the conversation the operator tapped. */}
+        {/* Hide campaign chrome while the narrow screen shows a conversation. */}
         <div
           className={
             threadOpenOnNarrow
@@ -649,12 +581,6 @@ export function FeedbackInboxPage() {
           />
         </div>
 
-        {/* The way back to the list, and only where the list is a separate
-          screen. Not `JtsBackLink`'s usual job — it leaves a route, and this
-          leaves a pane — but it is the same act from the operator's side and
-          the one exit affordance the app has, so it should not be relearned
-          here. The campaign's own «Back to campaigns» is hidden above while
-          this shows, so there is exactly one back link on screen at a time. */}
         {threadOpenOnNarrow ? (
           <div className="flex items-center justify-between gap-1 lg:hidden">
             <JtsBackLink to={`/admin/feedback/${campaignId}`}>
@@ -681,24 +607,10 @@ export function FeedbackInboxPage() {
           </div>
         ) : null}
 
-        {/* Everything under the nameplate is one working surface on one rhythm:
-            the summary, the two panes and the detail strip are all `gap-4`
-            apart, so no card on this screen is a different distance from its
-            neighbour than any other.
-
-            The summary opens it. It used to share a block with the context row
-            above it, back when that row was the card's caption; the row belongs
-            to the nameplate now, and what is left here is the first thing this
-            screen actually produced. */}
         <div className={threadOpenOnNarrow ? "hidden lg:block" : undefined}>
           <CampaignSummary campaignId={campaignId} />
         </div>
 
-        {/* Two panes on top — triage beside the thread — and the conversation's
-            detail broken into a strip of small cards under them. Each pane is
-            its own scroll container capped to the viewport, so switching
-            conversations never costs an operator their place in the list, and
-            no single column has to carry every fact about the conversation. */}
         {/* The explicit zero-minimum base track and grid items are not
             decorative responsive classes. On a narrow SPA navigation the
             campaign data is already present for the first layout; the
@@ -709,11 +621,6 @@ export function FeedbackInboxPage() {
             stays `self-start` so it does not grow a blank band under its last
             row when the thread is taller. */}
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
-          {/* Master and detail, one at a time below `lg`. Stacking them was the
-              desktop layout folded into one column: a 520px picker, then a
-              652px thread, then three 44vh cards — 2651px of page carrying
-              three nested scrollers, where reading a thread meant scrolling
-              past every conversation that was not it. */}
           <div
             className={
               threadOpenOnNarrow
@@ -825,10 +732,6 @@ export function FeedbackInboxPage() {
             )}
           </div>
 
-          {/* The detail strip: what the conversation produced, what staff wrote
-            about it, and who it is with — three short cards side by side
-            instead of one column an operator has to scroll to reach the
-            notes. */}
           {conversation ? (
             <div
               className={

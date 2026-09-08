@@ -33,13 +33,12 @@ export function ParticipantsPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
-  const allRows = useMemo(
-    () => participantsQuery.data?.items ?? [],
-    [participantsQuery.data?.items],
-  );
   const rows = useMemo(
-    () => allRows.filter((row) => matchesParticipantQuery(row, query)),
-    [allRows, query],
+    () =>
+      (participantsQuery.data?.items ?? []).filter((row) =>
+        matchesParticipantQuery(row, query),
+      ),
+    [participantsQuery.data?.items, query],
   );
 
   const loading = participantsQuery.isPending || participantsQuery.isFetching;
@@ -145,7 +144,7 @@ export function ParticipantsPage() {
         description={
           query.trim() === ""
             ? null
-            : `${rows.length} of ${allRows.length} match “${query.trim()}”.`
+            : `${rows.length} of ${participantsQuery.data?.items.length ?? 0} match “${query.trim()}”.`
         }
         rows={rows}
         columns={columns}

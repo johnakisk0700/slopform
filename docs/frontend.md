@@ -200,7 +200,7 @@ Not patterns to copy. A third entry means a product endpoint bypassed the client
 
 Forms: `aria-describedby`, focus first invalid field, preserve values on
 retryable failure, never raw server messages. Preview-only UIs must say they do
-not persist (Overview event dialog is the reference).
+not persist.
 
 ## CSS, tokens, fonts and motion
 
@@ -228,7 +228,9 @@ reduced-motion. Preview data stays visibly identified until a real API owns it.
 
 - Static SPA; `build` runs the TypeScript check and Vite.
 - `index.html` owns pre-paint theme and the no-script fallback.
-- Routes are React-lazy; Mermaid loads only for assistant diagram messages.
+- Admin routes are React-lazy and share one Suspense/Outlet boundary inside
+  the shell; navigation stays mounted while a page loads. Mermaid loads only
+  for assistant diagram messages.
   Inspect actual build output when assessing bundle size; source maps are off.
 - dev: port 3000 proxies `/api` → `localhost:4000` (`API_PORT`, `changeOrigin`);
   3000 is CORS-trusted `WEB_ORIGIN`. Prod: nginx reverse-proxies `/api` for the

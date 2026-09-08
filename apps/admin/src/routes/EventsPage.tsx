@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { CalendarRange } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router";
 
 import { useCreateEvent, useListEvents } from "../api/generated/events";
@@ -72,8 +72,6 @@ export function EventsPage() {
   const eventsQuery = useListEvents();
   const createEvent = useCreateEvent();
 
-  const [actionError, setActionError] = useState<string | null>(null);
-
   // Newest first: the event an operator opens is nearly always the last one
   // that happened. Clicking a header still takes the table over from here.
   const rows = useMemo(
@@ -89,10 +87,9 @@ export function EventsPage() {
   const loading = eventsQuery.isPending || eventsQuery.isFetching;
   const error = eventsQuery.isError
     ? apiErrorMessage(eventsQuery.error, "Failed to load events.")
-    : actionError;
+    : null;
 
   async function createNewEvent(details: { title: string; startsAt: string }) {
-    setActionError(null);
     await createEvent.mutateAsync({
       data: {
         title: details.title,

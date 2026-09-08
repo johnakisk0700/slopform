@@ -83,7 +83,7 @@ interface QueueItem {
   subtitle: string;
   stampTone: StampTone;
   stampLabel: ReactNode;
-  to?: string;
+  to: string;
 }
 
 /** A single receipt-ruled row in the operator attention queue. */
@@ -95,40 +95,26 @@ function QueueRow({
   stampLabel,
   to,
 }: QueueItem) {
-  const body = (
-    <>
-      <span
-        aria-hidden="true"
-        className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary"
-      >
-        <Icon className="size-4" />
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <strong className="font-bold text-ink">{title}</strong>
-        <small className="text-xs text-ink-muted">{subtitle}</small>
-      </span>
-      <span className="ml-auto">
-        <Stamp tone={stampTone}>{stampLabel}</Stamp>
-      </span>
-    </>
-  );
-
-  if (to) {
-    return (
-      <li className="first:pt-0 last:pb-0">
-        <Link
-          to={to}
-          className="-mx-1 flex items-center gap-3 rounded-md px-1 py-3 text-inherit no-underline transition-colors hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none"
-        >
-          {body}
-        </Link>
-      </li>
-    );
-  }
-
   return (
-    <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-      {body}
+    <li className="first:pt-0 last:pb-0">
+      <Link
+        to={to}
+        className="-mx-1 flex items-center gap-3 rounded-md px-1 py-3 text-inherit no-underline transition-colors hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none"
+      >
+        <span
+          aria-hidden="true"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary"
+        >
+          <Icon className="size-4" />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <strong className="font-bold text-ink">{title}</strong>
+          <small className="text-xs text-ink-muted">{subtitle}</small>
+        </span>
+        <span className="ml-auto">
+          <Stamp tone={stampTone}>{stampLabel}</Stamp>
+        </span>
+      </Link>
     </li>
   );
 }

@@ -1,4 +1,4 @@
-export interface StaffMessageDraft {
+interface MessageDraft {
   readonly text: string;
   readonly clientMessageId: string;
 }
@@ -9,18 +9,18 @@ const randomClientMessageId: ClientMessageIdFactory = () =>
   globalThis.crypto.randomUUID();
 
 /** One idempotency identity belongs to one exact composer draft. */
-export function createStaffMessageDraft(
+export function createMessageDraft(
   createId: ClientMessageIdFactory = randomClientMessageId,
-): StaffMessageDraft {
+): MessageDraft {
   return { text: "", clientMessageId: createId() };
 }
 
 /** Any edit creates a new intent; an unchanged retry keeps the old identity. */
-export function editStaffMessageDraft(
-  current: StaffMessageDraft,
+export function editMessageDraft(
+  current: MessageDraft,
   text: string,
   createId: ClientMessageIdFactory = randomClientMessageId,
-): StaffMessageDraft {
+): MessageDraft {
   if (text === current.text) {
     return current;
   }
@@ -32,22 +32,14 @@ export function editStaffMessageDraft(
  * success clears only the submitted draft: a newer edit must never disappear
  * when an older request settles.
  */
-export function settleStaffMessageDraft(
-  current: StaffMessageDraft,
+export function settleMessageDraft(
+  current: MessageDraft,
   submittedClientMessageId: string,
   succeeded: boolean,
   createId: ClientMessageIdFactory = randomClientMessageId,
-): StaffMessageDraft {
+): MessageDraft {
   if (!succeeded || current.clientMessageId !== submittedClientMessageId) {
     return current;
   }
-  return createStaffMessageDraft(createId);
+  return createMessageDraft(createId);
 }
-
-/**
- * The development simulator has the same retry contract as the staff composer:
- * one exact draft keeps one stable idempotency identity until success.
- */
-export const createSimulatorMessageDraft = createStaffMessageDraft;
-export const editSimulatorMessageDraft = editStaffMessageDraft;
-export const settleSimulatorMessageDraft = settleStaffMessageDraft;

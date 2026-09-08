@@ -15,8 +15,6 @@ interface BrandLockupProps {
   surface?: "strong" | "default";
   /** When set, the lockup is a home link; omit for a static mark (e.g. auth status). */
   to?: string;
-  /** Accessible name when `to` is set; ignored for the static mark. */
-  ariaLabel?: string;
   className?: string;
   /** Override the default wordmark span (e.g. `Drawer.Heading`). */
   wordmark?: ReactNode;
@@ -39,7 +37,6 @@ interface BrandLockupProps {
 export function BrandLockup({
   surface = "default",
   to,
-  ariaLabel = "Slopform admin home",
   className,
   wordmark,
   wordmarkClassName,
@@ -96,7 +93,7 @@ export function BrandLockup({
     return (
       <Link
         to={to}
-        aria-label={ariaLabel}
+        aria-label="Slopform admin home"
         className={clsx(
           "inline-flex items-center gap-3 no-underline",
           className,

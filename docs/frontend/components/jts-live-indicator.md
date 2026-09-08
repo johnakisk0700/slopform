@@ -6,8 +6,6 @@ stating the behaviour once.
 
 Source:
 [`JtsLiveIndicator.tsx`](../../../apps/admin/src/components/ui/JtsLiveIndicator.tsx).
-Hysteresis:
-[`liveIndicator.ts`](../../../apps/admin/src/lib/liveIndicator.ts).
 
 ## Contract
 
@@ -21,9 +19,9 @@ Hysteresis:
 
 - **No layout shift.** Icon always occupies its box; only opacity/rotation change.
 - **Hysteresis on paint.** Callers pass `isFetching` unchanged. Paint after
-  `LIVE_INDICATOR_SHOW_DELAY_MS` (300 ms); once painted, hold
-  `LIVE_INDICATOR_MIN_VISIBLE_MS` (450 ms) so snappy polls do not flash and the
-  300 ms fade can read.
+  300 ms; once painted, hold at least 450 ms so snappy polls do not flash and the
+  300 ms fade can read. The component owns one cancellable timer; reactivation
+  cancels a pending hide, and unmount cancels any pending paint.
 - **Not a live region.** No `role="status"` / `aria-live`. Hidden `label` states
   behaviour once; icon is `aria-hidden`.
 - **No status by colour.** Reports "working" only — `text-ink-subtle`, no

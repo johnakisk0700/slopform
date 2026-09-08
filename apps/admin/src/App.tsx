@@ -5,8 +5,8 @@ import {
   ClerkLoading,
 } from "@clerk/react";
 import { Toast } from "@heroui/react";
-import { lazy, Suspense, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { lazy, Suspense } from "react";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router";
 
 import { AuthPendingScreen } from "./components/admin/AuthPendingScreen";
 import { AuthStatusScreen } from "./components/admin/AuthStatusScreen";
@@ -70,13 +70,7 @@ const FeedbackOutboxPage = lazy(async () => {
   return { default: module.FeedbackOutboxPage };
 });
 
-/**
- * The cookbook gallery — development only, and gated so production never ships
- * it. `import.meta.env.DEV` is a literal Vite replaces with `false` when it
- * builds, so the whole branch (and with it the only `import()` of the module)
- * is dead code the bundler removes: no route, no nav row, no chunk. This is
- * the gate, not a convention — do not reach for a runtime flag instead.
- */
+// Vite removes this import and route from production builds.
 const CookbookPage = import.meta.env.DEV
   ? lazy(async () => {
       const module = await import("./routes/CookbookPage");
@@ -84,7 +78,7 @@ const CookbookPage = import.meta.env.DEV
     })
   : null;
 
-function LazyAdminRoute({ children }: { children: ReactNode }) {
+function AdminPageOutlet() {
   return (
     <Suspense
       fallback={
@@ -97,17 +91,11 @@ function LazyAdminRoute({ children }: { children: ReactNode }) {
         </div>
       }
     >
-      {children}
+      <Outlet />
     </Suspense>
   );
 }
 
-/**
- * The admin application root: the toast portal, the skip link (the first
- * focusable element on the page), and the route table. `/` redirects into the
- * `/admin` shell, which nests the routed views through its `<Outlet />`, and
- * any unknown path renders the standalone 404 screen.
- */
 function AppRoutes() {
   return (
     <Routes>
@@ -120,120 +108,35 @@ function AppRoutes() {
       <Route element={<RequireAdmin />}>
         <Route path="/" element={<Navigate to="/admin" replace />} />
         <Route path="/admin" element={<AdminShell />}>
-          <Route
-            index
-            element={
-              <LazyAdminRoute>
-                <OverviewPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="assistant/:threadId?"
-            element={
-              <LazyAdminRoute>
-                <AssistantPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="events"
-            element={
-              <LazyAdminRoute>
-                <EventsPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="events/:eventId"
-            element={
-              <LazyAdminRoute>
-                <EventDetailPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="participants"
-            element={
-              <LazyAdminRoute>
-                <ParticipantsPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="participants/:id"
-            element={
-              <LazyAdminRoute>
-                <ParticipantProfilePage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="feedback"
-            element={
-              <LazyAdminRoute>
-                <FeedbackCampaignsPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="feedback/:campaignId"
-            element={
-              <LazyAdminRoute>
-                <FeedbackInboxPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="feedback/:campaignId/results"
-            element={
-              <LazyAdminRoute>
-                <FeedbackResultsPage />
-              </LazyAdminRoute>
-            }
-          />
-          {/* Deliberately not under `feedback/` — the outbound queue spans
-              every campaign, and a nested path would leave both it and
-              «Feedback & safety» `aria-current` in the navigation. */}
-          <Route
-            path="outbound"
-            element={
-              <LazyAdminRoute>
-                <FeedbackOutboxPage />
-              </LazyAdminRoute>
-            }
-          />
-          {/* `createRoutesFromChildren` skips non-elements, so this collapses to
-              nothing in a production build rather than to a broken route. */}
-          {CookbookPage ? (
+          <Route element={<AdminPageOutlet />}>
+            <Route index element={<OverviewPage />} />
+            <Route path="assistant/:threadId?" element={<AssistantPage />} />
+            <Route path="events" element={<EventsPage />} />
+            <Route path="events/:eventId" element={<EventDetailPage />} />
+            <Route path="participants" element={<ParticipantsPage />} />
             <Route
-              path="cookbook"
-              element={
-                <LazyAdminRoute>
-                  <CookbookPage />
-                </LazyAdminRoute>
-              }
+              path="participants/:id"
+              element={<ParticipantProfilePage />}
             />
-          ) : null}
+            <Route path="feedback" element={<FeedbackCampaignsPage />} />
+            <Route
+              path="feedback/:campaignId"
+              element={<FeedbackInboxPage />}
+            />
+            <Route
+              path="feedback/:campaignId/results"
+              element={<FeedbackResultsPage />}
+            />
+            {/* Separate from feedback so only one navigation item is current. */}
+            <Route path="outbound" element={<FeedbackOutboxPage />} />
+            {CookbookPage ? (
+              <Route path="cookbook" element={<CookbookPage />} />
+            ) : null}
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<ErrorPage />} />
     </Routes>
-  );
-}
-
-/**
- * The local development tree. The bypass is announced in the shell's
- * environment block under the brand mark rather than by a banner above the
- * shell: a full-width strip pushed every route past the viewport height, which
- * cost the whole panel a permanent document scrollbar for a permanently true
- * message.
- */
-function DevelopmentBypassApp() {
-  return (
-    <BrowserRouter>
-      <AppRoutes />
-    </BrowserRouter>
   );
 }
 
@@ -244,7 +147,13 @@ export function App() {
         Skip to main content
       </a>
       <Toast.Provider />
-      {env.authDevBypass ? <DevelopmentBypassApp /> : <ClerkApplication />}
+      {env.authDevBypass ? (
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      ) : (
+        <ClerkApplication />
+      )}
     </>
   );
 }

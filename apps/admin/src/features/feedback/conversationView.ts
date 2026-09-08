@@ -3,6 +3,7 @@ import type { FeedbackConversationDetailDtoOutputAutomationState } from "../../a
 import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
 import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackConversationDetailDtoOutputLifecycleState } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleState";
+import type { FeedbackConversationDetailDtoOutputLifecycleReason } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleReason";
 import { controlLabel, lifecycleBadge, type FeedbackBadge } from "./labels";
 
 /**
@@ -23,7 +24,7 @@ export interface ConversationStatusFields {
   }[];
   lifecycle: {
     state: FeedbackConversationDetailDtoOutputLifecycleState;
-    reason: string | null;
+    reason: FeedbackConversationDetailDtoOutputLifecycleReason;
   };
   control: { mode: FeedbackConversationDetailDtoOutputControlMode };
   needsAttention: boolean;
@@ -107,14 +108,7 @@ export function goalProgress(
 export function conversationBadges(
   conversation: ConversationStatusFields,
 ): FeedbackBadge[] {
-  const badges: FeedbackBadge[] = [
-    lifecycleBadge({
-      state: conversation.lifecycle.state,
-      reason: conversation.lifecycle.reason as Parameters<
-        typeof lifecycleBadge
-      >[0]["reason"],
-    }),
-  ];
+  const badges: FeedbackBadge[] = [lifecycleBadge(conversation.lifecycle)];
 
   if (conversation.control.mode === "human") {
     badges.push({
@@ -155,12 +149,7 @@ export function closedConversationLine(
   if (conversation.lifecycle.state !== "closed") {
     return null;
   }
-  const { label } = lifecycleBadge({
-    state: conversation.lifecycle.state,
-    reason: conversation.lifecycle.reason as Parameters<
-      typeof lifecycleBadge
-    >[0]["reason"],
-  });
+  const { label } = lifecycleBadge(conversation.lifecycle);
   return `${label} — no messages can be sent.`;
 }
 

@@ -11,6 +11,7 @@ import { ArrowUp, Zap } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, type RefObject } from "react";
 
 import {
+  ASSISTANT_MESSAGE_MAX_LENGTH,
   assistantModelSupportsServiceTier,
   type AssistantEffort,
   type AssistantModel,
@@ -106,7 +107,7 @@ export function AssistantComposer({
               id="assistant-composer"
               value={value}
               rows={2}
-              maxLength={20_000}
+              maxLength={ASSISTANT_MESSAGE_MAX_LENGTH}
               placeholder={
                 isBlocked
                   ? "Retry the failed turn or start a new conversation"
