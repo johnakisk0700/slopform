@@ -2,7 +2,8 @@ import { clsx } from "clsx";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { resolveLiveIndicatorPainted } from "../../lib/liveIndicator";
+const SHOW_DELAY_MS = 300;
+const MIN_VISIBLE_MS = 450;
 
 export interface JtsLiveIndicatorProps {
   /** True while the pane's query is fetching. Drives the rotation only. */
@@ -16,78 +17,27 @@ export interface JtsLiveIndicatorProps {
   className?: string;
 }
 
-/**
- * A quiet "this pane refreshes itself" mark for a polled surface.
- *
- * A screen that reloads behind the operator's back should say so. This is the
- * whole affordance: a 14px muted stroke icon that turns while a fetch is in
- * flight and fades out when it is not. It always occupies its space, so a poll
- * never nudges the header beside it, and it never pulses, glows or changes
- * colour — status here is "working", not a state anyone must act on.
- *
- * Callers pass `isFetching` as `active`. Temporal hysteresis in
- * `resolveLiveIndicatorPainted` swallows snappy background polls and holds a
- * brief minimum once the icon has appeared, so a 50 ms refetch does not flash.
- *
- * Accessibility is deliberately not a live region. Announcing every three-second
- * poll would be noise; the hidden `label` states the behaviour once and the
- * rotation is decorative reinforcement for sighted operators. `globals.css`
- * collapses the animation under `prefers-reduced-motion`, leaving the icon
- * legible and still.
- */
+// Keep fast polls invisible and hold longer polls briefly, without layout shifts.
 export function JtsLiveIndicator({
   active,
   label,
   className,
 }: JtsLiveIndicatorProps) {
   const [painted, setPainted] = useState(false);
-  const becameActiveAtRef = useRef<number | null>(null);
-  const shownAtRef = useRef<number | null>(null);
+  const shownAt = useRef(0);
 
   useEffect(() => {
-    const now = Date.now();
-    if (active) {
-      if (becameActiveAtRef.current === null) {
-        becameActiveAtRef.current = now;
-      }
-    } else {
-      becameActiveAtRef.current = null;
-    }
+    if (active === painted) return;
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const delay = active
+      ? SHOW_DELAY_MS
+      : Math.max(0, MIN_VISIBLE_MS - (Date.now() - shownAt.current));
+    const timer = setTimeout(() => {
+      if (active) shownAt.current = Date.now();
+      setPainted(active);
+    }, delay);
 
-    function tick() {
-      const at = Date.now();
-      const next = resolveLiveIndicatorPainted({
-        painted,
-        active,
-        now: at,
-        becameActiveAt: becameActiveAtRef.current,
-        shownAt: shownAtRef.current,
-      });
-
-      if (next.painted !== painted) {
-        if (next.painted) {
-          shownAtRef.current = at;
-        } else {
-          shownAtRef.current = null;
-        }
-        setPainted(next.painted);
-        return;
-      }
-
-      if (next.checkAfterMs !== null) {
-        timer = setTimeout(tick, next.checkAfterMs);
-      }
-    }
-
-    tick();
-
-    return () => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-    };
+    return () => clearTimeout(timer);
   }, [active, painted]);
 
   return (
