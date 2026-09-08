@@ -1,233 +1,26 @@
-import { type ReactNode } from "react";
-import { Button, Chip } from "@heroui/react";
-import { Link } from "react-router";
+import { Button } from "@heroui/react";
+import clsx from "clsx";
 import {
-  AlertTriangle,
   Calendar as CalendarIcon,
-  CircleCheck,
-  Inbox,
-  type LucideIcon,
   MessageCircleWarning,
-  Pause,
   RefreshCw,
   SendHorizontal,
   Users,
 } from "lucide-react";
-import clsx from "clsx";
+import { Link } from "react-router";
 
-import { useGetOverview } from "../api/generated/overview";
-import type { OverviewDtoOutput } from "../api/generated/model/overviewDtoOutput";
-import { JtsStat } from "../components/ui/JtsStat";
-import { JtsPageHeader } from "../components/ui/JtsPageHeader";
-import { eventStatusLabel } from "../features/event/eventStatus";
-import { attentionReasonLabel } from "../features/feedback/labels";
-import { usePageMeta } from "../lib/usePageMeta";
+import { useGetOverview } from "../../api/generated/overview";
+import { JtsPageHeader } from "../../components/ui/JtsPageHeader";
+import { JtsStat } from "../../components/ui/JtsStat";
+import { eventStatusLabel } from "../../features/event/eventStatus";
+import { usePageMeta } from "../../lib/usePageMeta";
 
-/** Ledger-stamp tones — the status hues sanctioned by the design contract. */
-type StampTone = "primary" | "success" | "warning" | "danger" | "info";
-
-const stampToneText: Record<StampTone, string> = {
-  primary: "text-primary",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-danger",
-  info: "text-info",
-};
-
-const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-const dateFormatter = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
-function formatDateTime(value: string): string {
-  return dateTimeFormatter.format(new Date(value));
-}
-
-function formatDate(value: string): string {
-  return dateFormatter.format(new Date(value));
-}
-
-/**
- * A ledger "rubber stamp": a HeroUI Chip flattened to a transparent, outlined,
- * uppercase tag whose single hue is carried by `currentColor`.
- */
-function Stamp({ tone, children }: { tone: StampTone; children: ReactNode }) {
-  return (
-    <Chip
-      variant="tertiary"
-      className={clsx(
-        "rounded-sm border border-current/40 bg-transparent px-2 py-0.5 text-[0.7rem] font-extrabold uppercase tracking-[0.05em]",
-        stampToneText[tone],
-      )}
-    >
-      {children}
-    </Chip>
-  );
-}
-
-/** One row in the "Needs attention" operator queue. */
-interface QueueItem {
-  key: string;
-  icon: LucideIcon;
-  title: string;
-  subtitle: string;
-  stampTone: StampTone;
-  stampLabel: ReactNode;
-  to: string;
-}
-
-/** A single receipt-ruled row in the operator attention queue. */
-function QueueRow({
-  icon: Icon,
-  title,
-  subtitle,
-  stampTone,
-  stampLabel,
-  to,
-}: QueueItem) {
-  return (
-    <li className="first:pt-0 last:pb-0">
-      <Link
-        to={to}
-        className="-mx-1 flex items-center gap-3 rounded-md px-1 py-3 text-inherit no-underline transition-colors hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none"
-      >
-        <span
-          aria-hidden="true"
-          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary"
-        >
-          <Icon className="size-4" />
-        </span>
-        <span className="flex min-w-0 flex-col">
-          <strong className="font-bold text-ink">{title}</strong>
-          <small className="text-xs text-ink-muted">{subtitle}</small>
-        </span>
-        <span className="ml-auto">
-          <Stamp tone={stampTone}>{stampLabel}</Stamp>
-        </span>
-      </Link>
-    </li>
-  );
-}
-
-/** A copper informational aside (contract motif #6). */
-function CopperNote({ children }: { children: ReactNode }) {
-  return (
-    <div
-      role="note"
-      className="flex items-start gap-3 rounded-md border border-copper/35 bg-copper-soft px-4 py-3 text-sm text-ink-muted"
-    >
-      <Inbox
-        aria-hidden="true"
-        className="mt-0.5 size-4 shrink-0 text-copper"
-      />
-      <span>{children}</span>
-    </div>
-  );
-}
-
-/** A focus card: kicker rendered above the title, optional wine left marker. */
-function FocusCard({
-  kicker,
-  title,
-  primary = false,
-  children,
-}: {
-  kicker: string;
-  title: string;
-  primary?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <article
-      className={clsx(
-        "rounded-md border border-border bg-surface p-6",
-        primary && "border-l-[3px] border-l-primary",
-      )}
-    >
-      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-muted">
-        {kicker}
-      </p>
-      <h2 className="mb-4 text-[1.05rem] font-bold tracking-tight text-ink">
-        {title}
-      </h2>
-      {children}
-    </article>
-  );
-}
-
-function buildAttentionQueue(data: OverviewDtoOutput): QueueItem[] {
-  const items: QueueItem[] = data.feedback.conversations.attentionByReason.map(
-    (entry) => ({
-      key: `reason-${entry.reason}`,
-      icon: MessageCircleWarning,
-      title: attentionReasonLabel(entry.reason).replace(/\.$/u, ""),
-      subtitle: "Unresolved across open campaigns",
-      stampTone: entry.reason === "safety" ? "danger" : "warning",
-      stampLabel: entry.count,
-      to: "/admin/feedback",
-    }),
-  );
-
-  if (data.feedback.conversations.extractionParked > 0) {
-    items.push({
-      key: "extraction-parked",
-      icon: Pause,
-      title: "Extraction parked",
-      subtitle: "Provider or deployment trouble, not a person request",
-      stampTone: "warning",
-      stampLabel: data.feedback.conversations.extractionParked,
-      to: "/admin/feedback",
-    });
-  }
-
-  if (data.feedback.outbox.ambiguous > 0 || data.feedback.outbox.held > 0) {
-    items.push({
-      key: "outbox-stuck",
-      icon: SendHorizontal,
-      title: "Outbound needs a look",
-      subtitle: "Ambiguous or deliberately held deliveries",
-      stampTone: "danger",
-      stampLabel: data.feedback.outbox.ambiguous + data.feedback.outbox.held,
-      to: "/admin/outbound",
-    });
-  }
-
-  if (data.feedback.summaries.failed > 0) {
-    items.push({
-      key: "summaries-failed",
-      icon: AlertTriangle,
-      title: "Campaign summaries failed",
-      subtitle: "Retry from the campaign results screen",
-      stampTone: "warning",
-      stampLabel: data.feedback.summaries.failed,
-      to: "/admin/feedback",
-    });
-  }
-
-  if (data.events.finishedWithoutFeedbackCampaignCount > 0) {
-    items.push({
-      key: "finished-no-campaign",
-      icon: CircleCheck,
-      title: "Finished dinners without feedback",
-      subtitle: "Mark finished is the gate — launching is still the next step",
-      stampTone: "info",
-      stampLabel: data.events.finishedWithoutFeedbackCampaignCount,
-      to: "/admin/feedback",
-    });
-  }
-
-  return items;
-}
+import {
+  buildAttentionQueue,
+  formatDate,
+  formatDateTime,
+} from "./overviewData";
+import { CopperNote, FocusCard, QueueRow, Stamp } from "./OverviewPanels";
 
 /**
  * The Operations control landing view: exact platform aggregates for events,

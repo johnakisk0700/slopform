@@ -35,4 +35,4 @@ icon: `text-ink-subtle`.
 New `tone` only for a repeated operational condition paired with a status token.
 Drill-down stays a separate control beside the card.
 
-Reference: [`OverviewPage.tsx`](../../../apps/admin/src/routes/OverviewPage.tsx).
+Reference: [`OverviewPage.tsx`](../../../apps/admin/src/routes/OverviewPage/OverviewPage.tsx).

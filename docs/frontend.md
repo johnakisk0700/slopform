@@ -16,23 +16,23 @@ focused contracts.
 
 ## Start here
 
-| Task                        | Location                                    | First reference                                              |
-| --------------------------- | ------------------------------------------- | ------------------------------------------------------------ |
-| Add an admin route          | `apps/admin/src/routes/`                    | `OverviewPage.tsx` + route table in `App.tsx`                |
-| Overview landing            | `routes/OverviewPage.tsx`                   | [Overview](frontend/overview.md)                             |
-| AI assistant                | `routes/AssistantPage.tsx`                  | [Assistant](frontend/assistant.md)                           |
-| Feedback inbox              | `routes/FeedbackInboxPage.tsx`              | [Feedback conversations](frontend/feedback-conversations.md) |
-| Outbound queue              | `routes/FeedbackOutboxPage.tsx`             | [Outbound queue](frontend/feedback-outbound-queue.md)        |
-| Domain schema / pure helper | `features/<domain>/`                        | `features/event/eventStatus.ts`                              |
-| Domain UI                   | `components/admin/`                         | `AdminNavigation.tsx`                                        |
-| Shared UI                   | `components/ui/`                            | [Component inventory](frontend/components/README.md)         |
-| HeroUI primitive            | Owning route or component                   | `@heroui/react`                                              |
-| Call a backend endpoint     | `api/generated/`                            | [API contract](backend/mechanisms/api-contract.md)           |
-| Transport / env policy      | `lib/api.ts`, `lib/env.ts`                  | Env table below                                              |
-| Regenerate API client       | `pnpm api:generate` (root)                  | [API contract](backend/mechanisms/api-contract.md)           |
-| Theme / dark mode / tokens  | `useTheme.ts`, `globals.css`, design-tokens | [Style guide](../apps/admin/README.md)                       |
-| Routing / redirect / 404    | `App.tsx`                                   | Route table below                                            |
-| Dev proxy / build           | `vite.config.ts`                            | Delivery constraints below                                   |
+| Task                        | Location                                           | First reference                                              |
+| --------------------------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| Add an admin route          | `apps/admin/src/routes/`                           | `OverviewPage.tsx` + route table in `App.tsx`                |
+| Overview landing            | `routes/OverviewPage/OverviewPage.tsx`             | [Overview](frontend/overview.md)                             |
+| AI assistant                | `routes/AssistantPage/AssistantPage.tsx`           | [Assistant](frontend/assistant.md)                           |
+| Feedback inbox              | `routes/FeedbackInboxPage/FeedbackInboxPage.tsx`   | [Feedback conversations](frontend/feedback-conversations.md) |
+| Outbound queue              | `routes/FeedbackOutboxPage/FeedbackOutboxPage.tsx` | [Outbound queue](frontend/feedback-outbound-queue.md)        |
+| Domain schema / pure helper | `features/<domain>/`                               | `features/event/eventStatus.ts`                              |
+| Domain UI                   | `components/admin/`                                | `AdminNavigation.tsx`                                        |
+| Shared UI                   | `components/ui/`                                   | [Component inventory](frontend/components/README.md)         |
+| HeroUI primitive            | Owning route or component                          | `@heroui/react`                                              |
+| Call a backend endpoint     | `api/generated/`                                   | [API contract](backend/mechanisms/api-contract.md)           |
+| Transport / env policy      | `lib/api.ts`, `lib/env.ts`                         | Env table below                                              |
+| Regenerate API client       | `pnpm api:generate` (root)                         | [API contract](backend/mechanisms/api-contract.md)           |
+| Theme / dark mode / tokens  | `useTheme.ts`, `globals.css`, design-tokens        | [Style guide](../apps/admin/README.md)                       |
+| Routing / redirect / 404    | `App.tsx`                                          | Route table below                                            |
+| Dev proxy / build           | `vite.config.ts`                                   | Delivery constraints below                                   |
 
 Imports are explicit (no filename discovery). Shared components use the `Jts*`
 prefix: one file, named export matching the filename; export types only when a
@@ -88,11 +88,28 @@ src/
 │   └── RequireAdmin.tsx    Clerk + backend authorization gate
 ├── features/<domain>/      client-only schemas and pure helpers (no React)
 ├── lib/                    api, api-mutator, env, queryClient, useTheme, usePageMeta, …
-├── routes/                 page metadata, data wiring, composition
+├── routes/<PageName>/      page component, local hooks, helpers and sections
 ├── styles/globals.css      token bridge + base layer + motifs
 ├── App.tsx                 skip link, Toast.Provider, route table
 └── main.tsx                StrictMode + QueryClientProvider + ClerkProvider
 ```
+
+Each route owns a `routes/<PageName>/` folder with a named `<PageName>.tsx`
+entry, imported explicitly by `App.tsx`. The entry sets page metadata and
+composes the screen. Put page-specific state, queries and actions in adjacent
+`use…Controls` hooks; split a large hook further by responsibility (selection,
+results editing, assistant session, scroll). Keep local sections, column
+builders, presentation helpers and fixtures beside their page, with names that
+say what they own rather than catch-all `helpers.ts` or `utils.ts` files.
+Small pages need no hook merely to match the directory shape. Keep small
+helpers and constants in their owning file; a separate file should isolate a
+substantial responsibility or code used by multiple neighbours. File count and
+line count are signals, not targets. Remove obsolete commentary and unnecessary
+exports while reorganizing.
+
+Logic reused across pages stays in `features/<domain>/` (pure, no React),
+`components/admin/` (domain UI) or `lib/` (shared hooks/facades). Page folders
+have no barrel exports or nested hooks/helpers directories.
 
 Routes orchestrate; they do not absorb reusable table/form behavior. Shared UI
 does not hide domain API calls or business rules. UI selection order (full

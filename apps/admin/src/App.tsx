@@ -17,63 +17,66 @@ import {
   SignInLayout,
 } from "./components/admin/SignInLayout";
 import { env } from "./lib/env";
-import { ErrorPage } from "./routes/ErrorPage";
-import { SignInPage } from "./routes/SignInPage";
+import { ErrorPage } from "./routes/ErrorPage/ErrorPage";
+import { SignInPage } from "./routes/SignInPage/SignInPage";
 
 const AssistantPage = lazy(async () => {
-  const module = await import("./routes/AssistantPage");
+  const module = await import("./routes/AssistantPage/AssistantPage");
   return { default: module.AssistantPage };
 });
 
 const OverviewPage = lazy(async () => {
-  const module = await import("./routes/OverviewPage");
+  const module = await import("./routes/OverviewPage/OverviewPage");
   return { default: module.OverviewPage };
 });
 
 const EventsPage = lazy(async () => {
-  const module = await import("./routes/EventsPage");
+  const module = await import("./routes/EventsPage/EventsPage");
   return { default: module.EventsPage };
 });
 
 const EventDetailPage = lazy(async () => {
-  const module = await import("./routes/EventDetailPage");
+  const module = await import("./routes/EventDetailPage/EventDetailPage");
   return { default: module.EventDetailPage };
 });
 
 const ParticipantsPage = lazy(async () => {
-  const module = await import("./routes/ParticipantsPage");
+  const module = await import("./routes/ParticipantsPage/ParticipantsPage");
   return { default: module.ParticipantsPage };
 });
 
 const ParticipantProfilePage = lazy(async () => {
-  const module = await import("./routes/ParticipantProfilePage");
+  const module =
+    await import("./routes/ParticipantProfilePage/ParticipantProfilePage");
   return { default: module.ParticipantProfilePage };
 });
 
 const FeedbackCampaignsPage = lazy(async () => {
-  const module = await import("./routes/FeedbackCampaignsPage");
+  const module =
+    await import("./routes/FeedbackCampaignsPage/FeedbackCampaignsPage");
   return { default: module.FeedbackCampaignsPage };
 });
 
 const FeedbackInboxPage = lazy(async () => {
-  const module = await import("./routes/FeedbackInboxPage");
+  const module = await import("./routes/FeedbackInboxPage/FeedbackInboxPage");
   return { default: module.FeedbackInboxPage };
 });
 
 const FeedbackResultsPage = lazy(async () => {
-  const module = await import("./routes/FeedbackResultsPage");
+  const module =
+    await import("./routes/FeedbackResultsPage/FeedbackResultsPage");
   return { default: module.FeedbackResultsPage };
 });
 
 const FeedbackOutboxPage = lazy(async () => {
-  const module = await import("./routes/FeedbackOutboxPage");
+  const module = await import("./routes/FeedbackOutboxPage/FeedbackOutboxPage");
   return { default: module.FeedbackOutboxPage };
 });
 
 // Vite removes this import and route from production builds.
 const CookbookPage = import.meta.env.DEV
   ? lazy(async () => {
-      const module = await import("./routes/CookbookPage");
+      const module = await import("./routes/CookbookPage/CookbookPage");
       return { default: module.CookbookPage };
     })
   : null;

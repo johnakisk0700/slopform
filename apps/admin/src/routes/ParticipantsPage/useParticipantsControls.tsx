@@ -1,36 +1,30 @@
-import { Checkbox, SearchField } from "@heroui/react";
+import { Checkbox } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Search, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import type { ParticipantDtoOutput } from "../../api/generated/model/participantDtoOutput";
+import type { ParticipantListDtoOutput } from "../../api/generated/model/participantListDtoOutput";
 import {
   getListParticipantsQueryKey,
   useListParticipants,
   useUpdateParticipantFeedbackOptIn,
-} from "../api/generated/participants";
-import type { ParticipantDtoOutput } from "../api/generated/model/participantDtoOutput";
-import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
-import { ParticipantIdentity } from "../components/admin/participants/ParticipantIdentity";
-import { JtsDataTable } from "../components/ui/JtsDataTable";
-import { JtsPageHeader } from "../components/ui/JtsPageHeader";
-import { matchesParticipantQuery } from "../features/participants/search";
-import { apiErrorMessage } from "../lib/api";
-import { usePageMeta } from "../lib/usePageMeta";
+} from "../../api/generated/participants";
+import { ParticipantIdentity } from "../../components/admin/participants/ParticipantIdentity";
+import { matchesParticipantQuery } from "../../features/participants/search";
+import { apiErrorMessage } from "../../lib/api";
 
-/** Minimal participant admin list with the post-event feedback WhatsApp opt-in toggle. */
-export function ParticipantsPage() {
-  usePageMeta(
-    "Participants",
-    "Participant profiles and feedback WhatsApp opt-in.",
-  );
-
+export function useParticipantsControls() {
   const queryClient = useQueryClient();
+
   const participantsQuery = useListParticipants();
+
   const updateFeedbackOptIn = useUpdateParticipantFeedbackOptIn();
 
   const [actionError, setActionError] = useState<string | null>(null);
+
   const [savingId, setSavingId] = useState<string | null>(null);
+
   const [query, setQuery] = useState("");
 
   const rows = useMemo(
@@ -42,6 +36,7 @@ export function ParticipantsPage() {
   );
 
   const loading = participantsQuery.isPending || participantsQuery.isFetching;
+
   const error = participantsQuery.isError
     ? apiErrorMessage(participantsQuery.error, "Failed to load participants.")
     : actionError;
@@ -130,64 +125,5 @@ export function ParticipantsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- toggle closes over latest saver
     [savingId],
   );
-
-  return (
-    <div className="flex flex-col gap-6">
-      <JtsPageHeader
-        eyebrow="Operations"
-        title="Participants"
-        description="Whose phone we are allowed to reach after a dinner. Silence is the default, and every change here is signed and dated."
-      />
-
-      <JtsDataTable
-        title="Participants"
-        description={
-          query.trim() === ""
-            ? null
-            : `${rows.length} of ${participantsQuery.data?.items.length ?? 0} match “${query.trim()}”.`
-        }
-        rows={rows}
-        columns={columns}
-        getRowId={(row) => row.id}
-        loading={loading}
-        error={error}
-        paginator
-        pageSize={25}
-        rowsPerPageOptions={[25, 50, 100]}
-        emptyTitle={
-          query.trim() === "" ? "No participants" : "Nobody matches that"
-        }
-        emptyDescription={
-          query.trim() === ""
-            ? "Import WordPress profiles before managing opt-in."
-            : "Try a different name, email or phone."
-        }
-        emptyIcon={
-          <Users
-            aria-hidden="true"
-            className="size-9 text-ink-subtle"
-            strokeWidth={1.5}
-          />
-        }
-        toolbarEnd={
-          <SearchField
-            aria-label="Search participants"
-            value={query}
-            onChange={setQuery}
-            className="max-sm:w-full"
-          >
-            <SearchField.Group>
-              <SearchField.SearchIcon>
-                <Search aria-hidden="true" className="size-4" />
-              </SearchField.SearchIcon>
-              <SearchField.Input placeholder="Name, email or phone…" />
-              <SearchField.ClearButton>
-                <X aria-hidden="true" className="size-4" />
-              </SearchField.ClearButton>
-            </SearchField.Group>
-          </SearchField>
-        }
-      />
-    </div>
-  );
+  return { participantsQuery, query, setQuery, rows, loading, error, columns };
 }

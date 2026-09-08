@@ -4,8 +4,33 @@ import { Navigate } from "react-router";
 import {
   SignInFormPlaceholder,
   SignInLayout,
-} from "../components/admin/SignInLayout";
-import { usePageMeta } from "../lib/usePageMeta";
+} from "../../components/admin/SignInLayout";
+import { usePageMeta } from "../../lib/usePageMeta";
+
+export function SignInPage() {
+  const { isSignedIn } = useAuth();
+
+  usePageMeta(
+    "Admin sign in",
+    "Secure sign in for the Slopform administration panel.",
+  );
+
+  if (isSignedIn) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return (
+    <SignInLayout>
+      <SignIn
+        path="/sign-in"
+        routing="path"
+        fallbackRedirectUrl="/admin"
+        fallback={<SignInFormPlaceholder />}
+        appearance={SIGN_IN_APPEARANCE}
+      />
+    </SignInLayout>
+  );
+}
 
 /**
  * Clerk's widget wearing this admin's chrome. Everything around the form —
@@ -86,28 +111,3 @@ const SIGN_IN_APPEARANCE = {
     },
   },
 } as const;
-
-export function SignInPage() {
-  const { isSignedIn } = useAuth();
-
-  usePageMeta(
-    "Admin sign in",
-    "Secure sign in for the Slopform administration panel.",
-  );
-
-  if (isSignedIn) {
-    return <Navigate to="/admin" replace />;
-  }
-
-  return (
-    <SignInLayout>
-      <SignIn
-        path="/sign-in"
-        routing="path"
-        fallbackRedirectUrl="/admin"
-        fallback={<SignInFormPlaceholder />}
-        appearance={SIGN_IN_APPEARANCE}
-      />
-    </SignInLayout>
-  );
-}

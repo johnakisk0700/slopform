@@ -28,11 +28,21 @@ Auth bypass is announced in the sidebar environment block, not a banner.
 Attachments are off. Tools are on (nine, read-only). Future mutations need an
 operator-confirmation contract first — see the module.
 
-Sources: [`AssistantPage.tsx`](../../apps/admin/src/routes/AssistantPage.tsx),
+Sources: [`AssistantPage.tsx`](../../apps/admin/src/routes/AssistantPage/AssistantPage.tsx),
 [`components/admin/assistant/`](../../apps/admin/src/components/admin/assistant/),
 [`features/assistant/`](../../apps/admin/src/features/assistant/)
 (`schema.ts`, `stream.ts`, `composerSettings.ts`, `failureMessages.ts`),
 token-only styles in [`globals.css`](../../apps/admin/src/styles/globals.css).
+
+The page composes the existing conversation and composer UI through
+[`useAssistantControls`](../../apps/admin/src/routes/AssistantPage/useAssistantControls.ts).
+That hook owns drafts, submit/branch/revise actions and thread selection.
+Its local `useAssistantSettings` owns persisted pickers; `useAssistantSession` owns
+requests, cancellation, optimistic turns, SSE/poll reconciliation and recovery.
+`useAssistantScroll.ts` contains the alignment refs shared with actions and the
+measurement, live-send alignment and history hydration effects. Recovery helpers
+live with the session; transport stays in an adjacent file. These extractions
+preserve the lifecycle and direct-transport exception below.
 
 ## Client transport (documented exception)
 

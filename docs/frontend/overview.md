@@ -24,5 +24,5 @@ and a copper note for the snapshot age.
 - Loading, error and empty-next-dinner states are honest. There is no local
   preview data and no create-event modal on this page.
 
-Source: [`OverviewPage.tsx`](../../apps/admin/src/routes/OverviewPage.tsx).
+Source: [`OverviewPage.tsx`](../../apps/admin/src/routes/OverviewPage/OverviewPage.tsx).
 Backend contract: [overview module](../backend/modules/overview.md).

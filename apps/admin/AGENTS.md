@@ -11,20 +11,20 @@ using library APIs.
 
 ## Put code where its owner lives
 
-| Path                     | Owns                                                                                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/api/generated/`     | orval output: TanStack Query hooks, models and Zod schemas. **Never edited by hand**; run `pnpm api:generate` from the repository root.              |
-| `src/routes/`            | Pages: `usePageMeta`, data wiring, composition. They orchestrate; they do not absorb reusable table/form behavior.                                   |
-| `src/features/<domain>/` | Client-only Zod schemas (drafts, persisted values) and pure logic. **Zero React imports.** Never a copy of a backend response shape.                 |
-| `src/components/admin/`  | Admin shell and domain UI (`AdminShell`, `AdminNavigation`, `AdminUserMenu`, assistant chat composition).                                            |
-| `src/components/ui/`     | Shared, domain-free `Jts*` contracts. They own repeated operational behavior (states, a11y, layout) — never domain data, fetching or business rules. |
-| `src/lib/`               | Hooks and facades (`useTheme`, `usePageMeta`, `api`, `api-mutator`, `queryClient`, `env`).                                                           |
-| `src/styles/globals.css` | The token bridge (HeroUI base tokens + Tailwind `@theme`). The only place colors are wired.                                                          |
-| `index.html`             | Pre-paint theme script and the global `robots` meta.                                                                                                 |
+| Path                     | Owns                                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/api/generated/`     | orval output: TanStack Query hooks, models and Zod schemas. **Never edited by hand**; run `pnpm api:generate` from the repository root.                                   |
+| `src/routes/<PageName>/` | Named page entry (`usePageMeta`, composition) with adjacent page-specific hooks, sections and helpers. They orchestrate; they do not absorb reusable table/form behavior. |
+| `src/features/<domain>/` | Client-only Zod schemas (drafts, persisted values) and pure logic. **Zero React imports.** Never a copy of a backend response shape.                                      |
+| `src/components/admin/`  | Admin shell and domain UI (`AdminShell`, `AdminNavigation`, `AdminUserMenu`, assistant chat composition).                                                                 |
+| `src/components/ui/`     | Shared, domain-free `Jts*` contracts. They own repeated operational behavior (states, a11y, layout) — never domain data, fetching or business rules.                      |
+| `src/lib/`               | Hooks and facades (`useTheme`, `usePageMeta`, `api`, `api-mutator`, `queryClient`, `env`).                                                                                |
+| `src/styles/globals.css` | The token bridge (HeroUI base tokens + Tailwind `@theme`). The only place colors are wired.                                                                               |
+| `index.html`             | Pre-paint theme script and the global `robots` meta.                                                                                                                      |
 
 Do not create a shared abstraction before a second concrete use unless it owns an
 explicit foundation contract already listed in the component inventory. Keep
-one-off page logic explicit; delete scaffolding for APIs that do not exist.
+one-off page logic in its page folder, split by responsibility; delete scaffolding for APIs that do not exist.
 
 ## Select components deliberately
 

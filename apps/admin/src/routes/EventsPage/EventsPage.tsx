@@ -1,0 +1,111 @@
+import type { ColumnDef } from "@tanstack/react-table";
+import { CalendarRange } from "lucide-react";
+import { Link } from "react-router";
+
+import type { EventListDtoOutputItemsItem } from "../../api/generated/model/eventListDtoOutputItemsItem";
+import { CreateEventAction } from "../../components/admin/events/CreateEventAction";
+import { EventStatusChip } from "../../components/admin/events/EventStatusChip";
+import { VenuePill } from "../../components/admin/events/VenuePill";
+import { JtsDataTable } from "../../components/ui/JtsDataTable";
+import { JtsPageHeader } from "../../components/ui/JtsPageHeader";
+import { formatDateTime } from "../../lib/dateTime";
+import { usePageMeta } from "../../lib/usePageMeta";
+
+import { useEventsControls } from "./useEventsControls";
+
+export function EventsPage() {
+  const { createEvent, rows, loading, error, createNewEvent } =
+    useEventsControls();
+
+  usePageMeta("Events", "Events, venues, attendance and table assignments.");
+
+  return (
+    <div className="flex flex-col gap-6">
+      <JtsPageHeader
+        eyebrow="Operations"
+        title="Events"
+        /* The create/correct steps are already the screen's own buttons. What
+           is not on screen is that «finished» is a gate, not a status. */
+        description="A dinner is not over when everyone goes home — it is over when you mark it finished. Nothing reaches the guests before that."
+      />
+
+      <JtsDataTable
+        title="Events"
+        rows={rows}
+        columns={columns}
+        getRowId={(row) => row.id}
+        loading={loading}
+        error={error}
+        paginator
+        pageSize={25}
+        rowsPerPageOptions={[25, 50, 100]}
+        emptyTitle="No events yet"
+        emptyDescription="Create one to start recording attendance."
+        emptyIcon={
+          <CalendarRange
+            aria-hidden="true"
+            className="size-9 text-ink-subtle"
+            strokeWidth={1.5}
+          />
+        }
+        toolbarEnd={
+          <CreateEventAction
+            isPending={createEvent.isPending}
+            onCreate={createNewEvent}
+          />
+        }
+      />
+    </div>
+  );
+}
+
+const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
+  {
+    accessorKey: "title",
+    header: "Event",
+    cell: ({ row }) => (
+      <div className="grid min-w-0 gap-1.5">
+        <Link
+          to={`/admin/events/${row.original.id}`}
+          className="truncate font-bold text-primary underline-offset-2 hover:underline"
+        >
+          {row.original.title}
+        </Link>
+        {row.original.venue ? (
+          <div>
+            <VenuePill venue={row.original.venue} />
+          </div>
+        ) : null}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "startsAt",
+    header: "Starts",
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {formatDateTime(row.original.startsAt)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => <EventStatusChip status={row.original.status} />,
+  },
+  {
+    id: "attendance",
+    header: "Attended",
+    meta: { align: "end" },
+    // The present count is the number an operator is looking for; the total is
+    // the context it needs to mean anything, so it stays but steps back.
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        <strong className="font-bold text-ink">
+          {row.original.presentCount}
+        </strong>
+        <span className="text-ink-muted"> / {row.original.attendeeCount}</span>
+      </span>
+    ),
+  },
+];

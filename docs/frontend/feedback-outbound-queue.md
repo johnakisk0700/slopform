@@ -40,7 +40,7 @@ gated on the visible view — its count badges the History tab.
 | `src/components/admin/feedback/OutboxHistoryList.tsx`    | Log + pager                                      |
 | `src/components/admin/feedback/OutboxHistoryToolbar.tsx` | Range + status filters                           |
 | `src/components/admin/feedback/OutboxMessageDetails.tsx` | Opened row                                       |
-| `src/routes/FeedbackOutboxPage.tsx`                      | Wiring, selection, cursor stack                  |
+| `src/routes/FeedbackOutboxPage/FeedbackOutboxPage.tsx`   | Wiring, selection, cursor stack                  |
 
 Rules unit-tested in `apps/admin/test/feedback-outbox.spec.ts`.
 

@@ -11,6 +11,8 @@ mode, keyboard focus and reduced motion. Add a specimen when it helps review a
 real component change; the gallery does not define a second design system.
 
 Specimens use static local data and do not call domain APIs or start background
-work. Keep page-specific behavior in the page that owns it.
+work. Each gallery section lives beside `CookbookPage.tsx` with its own specimen
+state. Section metadata, frames and fixture data stay in that folder, grouped
+by the vocabulary they demonstrate.
 
-Source: [CookbookPage.tsx](../../apps/admin/src/routes/CookbookPage.tsx).
+Source: [CookbookPage.tsx](../../apps/admin/src/routes/CookbookPage/CookbookPage.tsx).

@@ -50,7 +50,10 @@ policy” when the actual decision can be named. Keep longer rationale in docs.
 
 Keep substantial types next to their owning mechanism. File length is a signal
 to inspect responsibilities, not an acceptance target. Moving code into many
-wrappers does not prove it is easier to understand.
+wrappers does not prove it is easier to understand. Keep small helpers, constants
+and local hooks with their owner unless a separate file removes a substantial
+responsibility from the reader's path. Reorganizing should also remove obsolete
+commentary, redundant exports and unnecessary indirection.
 
 ## Simplicity is the default
 

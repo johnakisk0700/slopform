@@ -1,8 +1,8 @@
 import { buttonVariants } from "@heroui/react";
 import { Link } from "react-router";
 
-import { BrandLockup } from "../components/admin/BrandLockup";
-import { usePageMeta } from "../lib/usePageMeta";
+import { BrandLockup } from "../../components/admin/BrandLockup";
+import { usePageMeta } from "../../lib/usePageMeta";
 
 /**
  * Standalone 404 screen for unknown routes.

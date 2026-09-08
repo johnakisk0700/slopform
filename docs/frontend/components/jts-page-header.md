@@ -33,6 +33,6 @@ Visual scale, marks and spacing follow the [style guide](../../../apps/admin/REA
 Add a slot/prop only after multiple routes need the same hierarchy. A second
 heading level is a page concern.
 
-Reference: [`OverviewPage.tsx`](../../../apps/admin/src/routes/OverviewPage.tsx);
+Reference: [`OverviewPage.tsx`](../../../apps/admin/src/routes/OverviewPage/OverviewPage.tsx);
 with back:
-[`FeedbackResultsPage.tsx`](../../../apps/admin/src/routes/FeedbackResultsPage.tsx).
+[`FeedbackResultsPage.tsx`](../../../apps/admin/src/routes/FeedbackResultsPage/FeedbackResultsPage.tsx).
