@@ -12,15 +12,15 @@ import { FeedbackOutboxRepository } from "./outbox.repository.js";
 import type { FeedbackOutboxClaimedRow } from "./outbox.types.js";
 
 /**
- * One polling pass over PostgreSQL's durable outbox.
+ * One claim-and-send wave within a BullMQ outbox poll.
  *
- * BullMQ is deliberately absent. PostgreSQL owns due work, claims and recovery;
+ * PostgreSQL owns due work, claims and recovery;
  * Redis only grants deployment-wide provider start slots. This service
  * quarantines expired attempts, claims a bounded FIFO batch, then runs each
  * conversation on its own send lane. Claim commits before preparation, pacing
  * or transport.
  *
- * Caller: FeedbackOutboxDispatcherLoop.
+ * Caller: FeedbackOutboxDispatchProcessor (and deterministic scenario harnesses).
  */
 @Injectable()
 export class MessageOutboxDispatcherService {

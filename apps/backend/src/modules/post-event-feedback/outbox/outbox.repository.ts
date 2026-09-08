@@ -899,77 +899,83 @@ export class FeedbackOutboxRepository {
     const claimExpiresAt = sql<Date>`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`;
     const olderOutbox = alias(messageOutbox, "older_message_outbox");
 
-    const candidates = await transaction
-      .select({ row: messageOutbox })
-      .from(messageOutbox)
-      .innerJoin(
-        feedbackCampaigns,
-        eq(feedbackCampaigns.id, messageOutbox.campaignId),
-      )
-      .where(
-        and(
-          authorizedTerminalIds.length > 0
-            ? or(
-                eq(feedbackCampaigns.status, "launched"),
-                inArray(messageOutbox.id, authorizedTerminalIds),
-              )
-            : eq(feedbackCampaigns.status, "launched"),
-          or(
-            eq(messageOutbox.status, "pending"),
-            and(
-              eq(messageOutbox.status, "claimed"),
-              lte(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
-              isNull(messageOutbox.sendStartedAt),
+    const candidates = transaction.$with("dispatch_candidates").as(
+      transaction
+        .select({ id: messageOutbox.id })
+        .from(messageOutbox)
+        .innerJoin(
+          feedbackCampaigns,
+          eq(feedbackCampaigns.id, messageOutbox.campaignId),
+        )
+        .where(
+          and(
+            authorizedTerminalIds.length > 0
+              ? or(
+                  eq(feedbackCampaigns.status, "launched"),
+                  inArray(messageOutbox.id, authorizedTerminalIds),
+                )
+              : eq(feedbackCampaigns.status, "launched"),
+            or(
+              eq(messageOutbox.status, "pending"),
+              and(
+                eq(messageOutbox.status, "claimed"),
+                lte(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+                isNull(messageOutbox.sendStartedAt),
+              ),
             ),
-          ),
-          // Only the oldest unresolved row of a conversation may be claimed.
-          // The correlated read still sees an older row when another replica
-          // has it locked, so `SKIP LOCKED` cannot leapfrog that row.
-          notExists(
-            transaction
-              .select({ id: olderOutbox.id })
-              .from(olderOutbox)
-              .where(
-                and(
-                  eq(olderOutbox.conversationId, messageOutbox.conversationId),
-                  inArray(
-                    olderOutbox.status,
-                    FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
-                  ),
-                  // Human takeover and the exact terminal lifecycle winner
-                  // must not deadlock behind an uncertainty with no automatic
-                  // resolution path. Neither may pass a live/pre-send row.
-                  or(
-                    ne(olderOutbox.status, "ambiguous"),
-                    and(
-                      ne(messageOutbox.kind, "staff"),
-                      ...(authorizedTerminalIds.length > 0
-                        ? [notInArray(messageOutbox.id, authorizedTerminalIds)]
-                        : []),
+            // Only the oldest unresolved row of a conversation may be claimed.
+            // The correlated read still sees an older row when another replica
+            // has it locked, so `SKIP LOCKED` cannot leapfrog that row.
+            notExists(
+              transaction
+                .select({ id: olderOutbox.id })
+                .from(olderOutbox)
+                .where(
+                  and(
+                    eq(
+                      olderOutbox.conversationId,
+                      messageOutbox.conversationId,
                     ),
-                  ),
-                  or(
-                    lt(olderOutbox.createdAt, messageOutbox.createdAt),
-                    and(
-                      eq(olderOutbox.createdAt, messageOutbox.createdAt),
-                      lt(olderOutbox.id, messageOutbox.id),
+                    inArray(
+                      olderOutbox.status,
+                      FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
+                    ),
+                    // Human takeover and the exact terminal lifecycle winner
+                    // must not deadlock behind an uncertainty with no automatic
+                    // resolution path. Neither may pass a live/pre-send row.
+                    or(
+                      ne(olderOutbox.status, "ambiguous"),
+                      and(
+                        ne(messageOutbox.kind, "staff"),
+                        ...(authorizedTerminalIds.length > 0
+                          ? [
+                              notInArray(
+                                messageOutbox.id,
+                                authorizedTerminalIds,
+                              ),
+                            ]
+                          : []),
+                      ),
+                    ),
+                    or(
+                      lt(olderOutbox.createdAt, messageOutbox.createdAt),
+                      and(
+                        eq(olderOutbox.createdAt, messageOutbox.createdAt),
+                        lt(olderOutbox.id, messageOutbox.id),
+                      ),
                     ),
                   ),
                 ),
-              ),
+            ),
           ),
-        ),
-      )
-      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
-      .limit(boundedLimit)
-      .for("update", { of: messageOutbox, skipLocked: true });
+        )
+        .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+        .limit(boundedLimit)
+        .for("update", { of: messageOutbox, skipLocked: true }),
+    );
 
-    if (candidates.length === 0) {
-      return [];
-    }
-
-    const candidateIds = candidates.map(({ row }) => row.id);
     const claimed = await transaction
+      .with(candidates)
       .update(messageOutbox)
       .set({
         status: "claimed",
@@ -979,23 +985,20 @@ export class FeedbackOutboxRepository {
         lastError: null,
         updatedAt: sql`clock_timestamp()`,
       })
-      .where(inArray(messageOutbox.id, candidateIds))
+      .where(
+        inArray(
+          messageOutbox.id,
+          transaction.select({ id: candidates.id }).from(candidates),
+        ),
+      )
       .returning();
-    const byId = new Map(claimed.map((row) => [row.id, row]));
-
-    return candidateIds.flatMap((id) => {
-      const row = byId.get(id);
-      if (
-        !row ||
-        row.status !== "claimed" ||
-        !row.claimToken ||
-        !row.claimExpiresAt ||
-        row.sendStartedAt !== null
-      ) {
-        return [];
-      }
-      return [row as FeedbackOutboxClaimedRow];
-    });
+    // UPDATE RETURNING has no order guarantee; retain oldest-first batch results.
+    // The update above establishes the claimed-row fields in the returned rows.
+    return claimed.sort(
+      (left, right) =>
+        left.createdAt.getTime() - right.createdAt.getTime() ||
+        left.id.localeCompare(right.id),
+    ) as FeedbackOutboxClaimedRow[];
   }
 
   /**

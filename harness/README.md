@@ -30,6 +30,17 @@ database keep their explicit target, fixture scope and existing confirmation
 flags. Real-provider runs are separate from `pnpm check`. Output belongs under
 the ignored root `report/` directory.
 
+Outbox scheduling has an opt-in real Redis test. Point it at a disposable Redis:
+
+```sh
+FEEDBACK_OUTBOX_TEST_REDIS_URL=redis://127.0.0.1:6379 \
+  pnpm --filter @slopform/harness exec vitest run feedback/outbox/dispatch.processor.redis.spec.ts
+```
+
+It uses a unique queue and removes only that queue afterward. Two worker
+replicas exercise shared scheduling, adaptive cadence, restart and a failed
+poll. Message dispatch is stubbed; this test makes no provider calls.
+
 Add tests for behavior that matters: delivery uncertainty, state transitions,
 idempotency, recovery and participant interactions. Do not add assertions about
 source text or internal class wiring. The in-memory scenarios do not prove SQL

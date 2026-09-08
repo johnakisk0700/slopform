@@ -1,15 +1,18 @@
 # Queues and workers
 
-Status: implemented. Last verified: **2026-08-05** against `@nestjs/bullmq
+Status: implemented. Last verified: **2026-09-08** against `@nestjs/bullmq
 11.0.4`, BullMQ `5.80.10` and Bull Board `8.1.2`.
 
 ## Boundary
 
 BullMQ is retryable async delivery. Redis coordinates; it is not a business
 source of truth. HTTP owns producers; a separately deployed Nest worker owns
-processors. Feedback **outbound** delivery does not use BullMQ — the worker
-claims PostgreSQL `message_outbox` rows directly. The assistant live-text relay
-is a Redis **stream**, not a BullMQ job ([assistant streaming](assistant-streaming.md)).
+processors. Feedback **outbound** dispatch uses the recurring `feedback-outbox`
+BullMQ scheduler to run PostgreSQL-backed batches. PostgreSQL remains the
+business and delivery source of truth: the dispatcher atomically claims
+`message_outbox` rows and records leases and outcomes there. The assistant
+live-text relay is a Redis **stream**, not a BullMQ job
+([assistant streaming](assistant-streaming.md)).
 
 | Process | Module              | Redis `maxRetriesPerRequest` | Owns                                                              |
 | ------- | ------------------- | ---------------------------- | ----------------------------------------------------------------- |
@@ -18,7 +21,9 @@ is a Redis **stream**, not a BullMQ job ([assistant streaming](assistant-streami
 
 Worker-side feedback producers publish only successor/recovery wake-ups after
 durable intent exists (conversation revisions, campaign-summary attempts, the
-maintenance schedule). The email relay still publishes delivery jobs.
+maintenance schedule). The recurring feedback outbox scheduler is registered by
+the worker and publishes no per-message jobs. The email relay still publishes
+delivery jobs.
 
 ```mermaid
 flowchart LR
@@ -59,6 +64,7 @@ unsupported version / malformed data / missing authoritative record →
 | `feedback-conversation` | `feedback.reconcile-conversation.v2` | `{ schemaVersion: 2, conversationId, revision, correlationId }`  | `feedback-reconcile-v2-<conversationId>-<revision>` |
 | `feedback-summary`      | `feedback.summarize-campaign.v2`     | `{ schemaVersion: 2, campaignId, attempt, correlationId }`       | `feedback-summarize-v2-<campaignId>-<attempt>`      |
 | `feedback-maintenance`  | `feedback.maintenance.v2`            | `{ schemaVersion: 2, correlationId }`                            | repeat schedule                                     |
+| `feedback-outbox`       | `feedback.dispatch-outbox.v2`        | `{ schemaVersion: 2, correlationId }`                            | repeat schedule                                     |
 | `feedback` (legacy)     | V1 drain only — see below            | V1 envelopes                                                     | V1 IDs; no new production                           |
 
 Email content lives only in PostgreSQL. Relay uses
@@ -242,10 +248,28 @@ or DB uniqueness.
 
 ## Commit-to-enqueue and outbox
 
-| Path              | Pattern                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Email             | Transactional outbox: mutate + outbox row in one txn → relay with stable job key → delivery claim before the provider call → terminal settlement consumes the event. Retryable failures keep it dispatched and due. Relay: `FOR UPDATE SKIP LOCKED`, reclaim expired leases, republish after recovery horizon. Closes commit/enqueue and ack-loss gaps, not downstream exactly-once.           |
-| Feedback outbound | **No** BullMQ. One-second worker loop claims ≤4 rows in a dispatcher-owned transaction (`FOR UPDATE SKIP LOCKED`), opaque token, two-minute lease. Oldest unresolved row per conversation; four parallel lanes across conversations. STOP ack (`lifecycle.terminalOutboxId`) and explicit staff may pass `ambiguous`; nothing passes `pending`/`held`/`claimed`/`attempting`/legacy `sending`. |
+| Path              | Pattern                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Email             | Transactional outbox: mutate + outbox row in one txn → relay with stable job key → delivery claim before the provider call → terminal settlement consumes the event. Retryable failures keep it dispatched and due. Relay: `FOR UPDATE SKIP LOCKED`, reclaim expired leases, republish after recovery horizon. Closes commit/enqueue and ack-loss gaps, not downstream exactly-once. |
+| Feedback outbound | Transactional outbox: PostgreSQL writes intent and transcript, then the recurring `feedback-outbox` scheduler invokes a batch dispatcher. Global concurrency is 1; each job claims rows in waves of up to 4, up to 100 claims, with `FOR UPDATE SKIP LOCKED`, an opaque token and a two-minute lease.                                                                                |
+
+The feedback outbox scheduler starts at 1,000ms and adapts between 250ms and
+5,000ms: it halves the interval after 100 claims and doubles it below 50
+claims, preserving its stored interval on restart. A partial wave, deferred
+message or lost claim ends the current poll. A scheduler update may make the
+next job eligible immediately, so these
+are policy bounds rather than a fixed polling cadence. The dispatcher keeps the
+oldest unresolved row per conversation and the existing four parallel transport
+lanes. STOP ack (`lifecycle.terminalOutboxId`) and explicit staff may pass
+`ambiguous`; nothing passes `pending`/`held`/`claimed`/`attempting`/legacy
+`sending`.
+
+The batch job has one attempt and immediate completed/failed removal; BullMQ
+creates its recurring successor when processing starts. The next poll recovers
+expired pre-send claims after a failure; post-marker uncertainty remains
+`ambiguous`. The PostgreSQL claim is one CTE selection and
+`UPDATE ... RETURNING` statement. See
+[ADR 0021](../../decisions/0021-bullmq-outbox-polling.md).
 
 Outbound states: Redis limiter awaited while `claimed`; token-fenced heartbeat;
 phone + conversation advisory locks + campaign share-lock + consent before
@@ -285,8 +309,10 @@ critical delivery.
 Focused coverage: URL/options mapping, process composition, connection settle at
 shutdown, dashboard security, deterministic IDs, payload/version rejection,
 permanent vs transient failures, assistant attempt fencing, ingress replay,
-revision/epoch/token fencing, direct outbox `SKIP LOCKED`/CAS/pre-send marker,
-maintenance subtasks and stable materialize job ID.
+revision/epoch/token fencing, atomic outbox `SKIP LOCKED`/CAS/pre-send marker,
+maintenance subtasks and stable materialize job ID. The opt-in Redis harness
+checks outbox schedule sharing, adaptive intervals, restart and failed-poll
+recovery (command in [harness](../../../harness/README.md)).
 
 ## Sources
 
@@ -300,6 +326,7 @@ maintenance subtasks and stable materialize job ID.
   [feedback jobs](../../../apps/backend/src/modules/post-event-feedback/jobs.schemas.ts),
   [ingress](../../../apps/backend/src/modules/post-event-feedback/ingress/),
   [reconcile/wakeups](../../../apps/backend/src/modules/post-event-feedback/reconciliation/),
+  [outbox poll processor](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch.processor.ts),
   [outbox dispatcher](../../../apps/backend/src/modules/post-event-feedback/outbox/),
   [maintenance](../../../apps/backend/src/modules/post-event-feedback/sweeps/)
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues),

@@ -37,8 +37,10 @@ The production module remains under `apps/backend/src/modules/post-event-feedbac
 
 Real-model rubrics:
 `post-event-feedback-real-model-corpus.ts`. Transport-only cases stay fake-backed.
-Loop harness schedules via conversation-revision wake-up + direct PostgreSQL
-dispatcher. `FakeFeedbackConversations` stores typed aggregates in memory and
+The deterministic loop harness drives conversation-revision wake-ups and calls
+the dispatcher directly. Production BullMQ polling is covered separately by
+the opt-in Redis test in [harness](../../../harness/README.md).
+`FakeFeedbackConversations` stores typed aggregates in memory and
 calls the production state transitions. Its simulated execution fence is
 explicit; it does not prove PostgreSQL locking, JSONB sizing or rollback.
 The opt-in PostgreSQL suite covers those adapter guarantees. Focused

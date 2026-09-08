@@ -475,7 +475,8 @@ to record is honoured.
 - Control is **not** seized on AI handoff (D17).
 
 Extraction stops at the outbox; the
-[direct dispatcher](#direct-outbox-dispatch-and-transport-implemented) sends.
+[outbox batch dispatcher](#outbox-batch-dispatch-and-transport-implemented)
+sends.
 
 ### One send per wording
 
@@ -777,15 +778,28 @@ mutating the conversation row, matching campaign resume's lock order.
 Per-phone/chat session
 advisory lock drains `ingress_order`. Maintenance re-enqueues pending ingress
 older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` and republishes missing
-due-work wake-ups. Materialization does not send; extraction inserts outbox,
-dispatcher claims.
+due-work wake-ups. Materialization does not send; extraction inserts outbox, and
+the feedback-outbox processor invokes the dispatcher to claim it.
 
-## Direct outbox dispatch and transport (implemented)
+## Outbox batch dispatch and transport (implemented)
 
+[`FeedbackOutboxDispatchProcessor`](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch.processor.ts)
+handles the recurring `feedback-outbox` scheduler and
+`feedback.dispatch-outbox.v2` job. Queue global concurrency is 1. Bootstrap keeps
+an existing scheduler interval when present and otherwise starts at 1,000ms.
+The processor adapts that interval between 250ms and 5,000ms: it halves after
+100 claims, doubles below 50 claims, and otherwise keeps it. A scheduler update
+may make the next job eligible immediately, so these are policy bounds rather
+than a fixed wall-clock cadence.
+
+Each job calls
 [`MessageOutboxDispatcherService`](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts)
-polls PostgreSQL (no steady-state relay). One-second pass: quarantine expired
-attempts, claim up to four launched rows (`FOR UPDATE SKIP LOCKED`), oldest
-unresolved per conversation, Redis limiter across replicas.
+in waves of up to four claims, stopping at 100 total claims or after a short
+wave, a `deferred` outcome or a `claim_lost` outcome. The dispatcher claims rows
+atomically in a short PostgreSQL transaction with `FOR UPDATE SKIP LOCKED`;
+PostgreSQL retains the lease, token and delivery outcome. Claim commits before
+per-conversation preparation, pacing and transport, with the Redis limiter
+shared across replicas.
 
 The batch dispatcher owns the short claim transaction; the outbox repository
 selects and updates rows on its supplied transaction. Claim commits before
@@ -794,7 +808,8 @@ coordinates one message. `FeedbackDispatchPreparationService` owns guards and
 the final marker transaction, `FeedbackDispatchSettlementService` owns provider
 outcomes and uncertain-delivery projection, and `FeedbackDispatchRecoveryService`
 owns expired-attempt quarantine. Quarantine and delivery finalization retain
-their separate transactions. The poll loop and provider adapters are unchanged.
+their separate transactions. Before application shutdown, the processor stops
+new fetches and drains the current wave before the database and pacer close.
 
 Eligibility is checked before pacing and again inside the locked preparation
 transaction. The pure [conversation dispatch policy](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-eligibility.ts)
@@ -1067,7 +1082,8 @@ evidence says otherwise. Event detail exposes nullable `feedbackCampaignId`.
 ## Staff conversation inbox HTTP
 
 [`PostEventFeedbackConversationService`](../../../apps/backend/src/modules/post-event-feedback/inbox/conversation.service.ts):
-list/detail/results + capability-gated actions. No extraction/relay changes.
+list/detail/results + capability-gated actions. No extraction or outbound
+dispatch changes.
 
 | Concern                 | Contract                                                                               |
 | ----------------------- | -------------------------------------------------------------------------------------- |

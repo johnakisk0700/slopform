@@ -8,7 +8,7 @@ import {
 } from "./sweep-scheduler.service.js";
 
 describe("FeedbackSweepSchedulerService", () => {
-  it("upserts one maintenance tick and deletes the three legacy schedules", async () => {
+  it("upserts one maintenance tick and deletes the legacy schedules", async () => {
     const legacy = {
       removeJobScheduler: vi.fn().mockResolvedValue(true),
     };
@@ -37,6 +37,7 @@ describe("FeedbackSweepSchedulerService", () => {
       FEEDBACK_JOB_NAMES.sweepRemindersV1,
       FEEDBACK_JOB_NAMES.sweepExpiryV1,
       FEEDBACK_JOB_NAMES.sweepIngressV1,
+      FEEDBACK_JOB_NAMES.relayOutboxV1,
     ]);
   });
 });

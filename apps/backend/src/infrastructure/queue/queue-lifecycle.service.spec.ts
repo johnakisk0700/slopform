@@ -7,6 +7,7 @@ import {
   FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
   FEEDBACK_MAINTENANCE_QUEUE,
+  FEEDBACK_OUTBOX_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
   FEEDBACK_TOPIC_ANALYSIS_QUEUE,
@@ -29,6 +30,7 @@ const SETTLED_QUEUES = [
   FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
   FEEDBACK_MAINTENANCE_QUEUE,
+  FEEDBACK_OUTBOX_QUEUE,
   FEEDBACK_TOPIC_ANALYSIS_QUEUE,
 ] as const;
 
@@ -97,7 +99,7 @@ describe("QueueLifecycleService", () => {
 
 function queueTuple(
   queues: readonly Queue[],
-): [Queue, Queue, Queue, Queue, Queue, Queue, Queue, Queue] {
+): [Queue, Queue, Queue, Queue, Queue, Queue, Queue, Queue, Queue] {
   const [
     assistant,
     email,
@@ -106,6 +108,7 @@ function queueTuple(
     feedbackConversation,
     feedbackSummary,
     feedbackMaintenance,
+    feedbackOutbox,
     feedbackTopics,
   ] = queues;
   return [
@@ -116,6 +119,7 @@ function queueTuple(
     feedbackConversation!,
     feedbackSummary!,
     feedbackMaintenance!,
+    feedbackOutbox!,
     feedbackTopics!,
   ];
 }

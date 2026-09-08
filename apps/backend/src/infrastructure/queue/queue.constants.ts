@@ -28,6 +28,8 @@ export const FEEDBACK_SUMMARY_QUEUE = "feedback-summary";
 export const FEEDBACK_TOPIC_ANALYSIS_QUEUE = "feedback-topic-analysis";
 /** Cheap periodic recovery and expiry scans. */
 export const FEEDBACK_MAINTENANCE_QUEUE = "feedback-maintenance";
+/** Recurring PostgreSQL outbox batch dispatch. */
+export const FEEDBACK_OUTBOX_QUEUE = "feedback-outbox";
 
 export const OUTBOX_RELAY_JOB_OPTIONS = {
   attempts: 1,

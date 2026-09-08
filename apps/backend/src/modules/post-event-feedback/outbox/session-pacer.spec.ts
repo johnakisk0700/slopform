@@ -91,7 +91,7 @@ describe("RedisFeedbackSendLimiter", () => {
     const redis = new FakeSendLimiterRedis();
     const limiter = new RedisFeedbackSendLimiter(redis);
 
-    limiter.onModuleDestroy();
+    limiter.onApplicationShutdown();
 
     expect(redis.disconnected).toBe(true);
   });
