@@ -32,7 +32,7 @@ const recordRoots = {
   history: path.join(docsRoot, "history"),
 };
 const sourceReference =
-  /(?<![\w./-])((?:apps|packages|scripts)\/[\w./-]+\.(?:ts|tsx|mjs|json|css))(?![\w/-])/g;
+  /(?<![\w./-])((?:apps|packages|scripts|harness)\/[\w./-]+\.(?:ts|tsx|mjs|json|css))(?![\w/-])/g;
 
 for (const file of scannedFiles) {
   if (!existsSync(file)) {

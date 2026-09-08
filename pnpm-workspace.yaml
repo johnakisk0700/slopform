@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - harness
 
 allowBuilds:
   "@scarf/scarf@1.4.0": false

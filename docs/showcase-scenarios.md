@@ -6,7 +6,7 @@ See [the portfolio plan](portfolio-plan.md) for current implementation scope.
 
 ## Fixture authoring implementation
 
-The [workshop fixture package](../fixtures/workshop-feedback/README.md) owns the
+The [workshop fixture package](../harness/fixtures/workshop-feedback/README.md) owns the
 event brief, 55 reusable character archetypes, 100 participant profiles, the Luna
 generation prompt and ten dialogue batches. Two native Astra agents authored and
 cross-checked event facts and profiles. Native Luna agents use xhigh; root reviews

@@ -128,7 +128,7 @@
     "workshop:compile": {
       "dependsOn": ["build"],
       "cache": false,
-      "outputs": ["../../fixtures/workshop-feedback/generated/**"]
+      "outputs": ["../../harness/fixtures/workshop-feedback/generated/**"]
     },
     "workshop:check": {
       "dependsOn": ["build"],

@@ -1,0 +1,981 @@
+import { randomUUID } from "node:crypto";
+
+import { Logger } from "@nestjs/common";
+import type { AppTransaction } from "@slopform/database";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { AuditRepository } from "../../../apps/backend/src/infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../apps/backend/src/infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.js";
+import type { EventsService } from "../../../apps/backend/src/modules/events/events.service.js";
+import type { FeedbackOperatorAlertInput } from "../../../apps/backend/src/modules/post-event-feedback/operator-alert.js";
+import type { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
+import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
+import type { FeedbackOutboundDecision } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.snapshot.js";
+import { FeedbackOutboundTranscriptService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
+import {
+  FakeAudit,
+  FakeEvents,
+  FakeFeedbackConversations,
+  feedbackConversationFixture,
+  feedbackStoredMessage,
+} from "../post-event-feedback-doubles.harness.js";
+import { PostEventFeedbackExtractionFallback } from "../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.js";
+import {
+  FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,
+  POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+  POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
+  createFeedbackExtractionParkedNoticeDedupeKey,
+} from "../../../apps/backend/src/modules/post-event-feedback/extraction/extraction.schemas.js";
+import {
+  createFeedbackReconcileConversationJobId,
+  FEEDBACK_EXTRACTION_PARK_MAX_MS,
+  FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+} from "../../../apps/backend/src/modules/post-event-feedback/jobs.schemas.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../../../apps/backend/src/modules/post-event-feedback/question-set.js";
+import type { FeedbackCampaignRepository } from "../../../apps/backend/src/modules/post-event-feedback/campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../../../apps/backend/src/modules/post-event-feedback/extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.js";
+import type { FeedbackConversationWakeupService } from "../../../apps/backend/src/modules/post-event-feedback/reconciliation/wakeup.service.js";
+
+const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const eventId = "6b1d2f43-2f6a-4a1f-9f39-0f2c1f6c9a10";
+const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
+const respondentId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
+const kostasOne = "1b2c3d4e-0000-4000-8000-000000000001";
+const kostasTwo = "1b2c3d4e-0000-4000-8000-000000000002";
+const eleni = "1b2c3d4e-0000-4000-8000-000000000003";
+const correlationId = "correlation-1";
+const firstIngressId = "27ec56f4-011d-46d7-9ed9-4a55fa1d07da";
+const secondIngressId = "855589be-fc1d-460d-9524-4b3754521a91";
+const b1 = "00000000-0000-4000-8000-0000000000b1";
+const p1 = "00000000-0000-4000-8000-000000000001";
+const p2 = "00000000-0000-4000-8000-000000000002";
+const botOutboxId = "00000000-0000-4000-8000-0000000000b0";
+
+const disclosure = "Ο Κώστας μας έδειχνε dickpics όλο το βράδυ";
+
+describe("PostEventFeedbackExtractionFallback", () => {
+  let harness: Harness;
+
+  beforeAll(() => {
+    Logger.overrideLogger(false);
+  });
+
+  beforeEach(() => {
+    harness = createHarness();
+  });
+
+  it("records one note and one audit event without replying", async () => {
+    const result = await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    expect(result.applied).toBe(true);
+    expect(harness.repository.notes).toHaveLength(1);
+    // The one row is the idempotency fence. Nothing is a participant reply.
+    expect(harness.repository.outbox).toHaveLength(1);
+    expect(harness.repository.outbox[0]).toMatchObject({
+      kind: "system",
+    });
+    expect(harness.audit.events).toHaveLength(1);
+    expect(harness.conversations.get(conversationId).awaitingHuman).toBe(true);
+
+    expect(harness.repository.notes[0]).toMatchObject({
+      noteType: "general",
+      status: "new",
+      text: POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
+      conversationId,
+      campaignId,
+      respondentParticipantId: respondentId,
+      // Provenance points at the exact message the run died on.
+      sourceMessageIds: [p1],
+    });
+    expect(harness.audit.events[0]).toMatchObject({
+      action: "feedback_conversation.extraction_failed",
+      entityType: "feedback_conversation",
+      entityId: conversationId,
+      context: { cause: "provider_refusal", sourceMessageId: p1 },
+    });
+    expect(harness.repository.outboxLogs).toEqual([
+      expect.objectContaining({
+        origin: "extraction_fallback_fence",
+        decision: {
+          origin: "extraction_fallback_fence",
+          cause: "provider_refusal",
+        },
+      }),
+    ]);
+  });
+
+  it("fabricates no model or confidence in the note's provenance", async () => {
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    const meta = harness.repository.notes[0]?.extractionMeta as
+      Record<string, unknown> | undefined;
+    expect(meta).toMatchObject({
+      origin: "deterministic_fallback",
+      cause: "provider_refusal",
+      candidateIds: [kostasOne, kostasTwo, eleni],
+    });
+    // No model ran to completion, so an absent field is the honest record; a
+    // zero confidence would read as a real low-confidence extraction.
+    expect(meta).not.toHaveProperty("model");
+    expect(meta).not.toHaveProperty("confidence");
+  });
+
+  it("does not repeat the current goal after failing to read its answer", async () => {
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    expect(
+      harness.repository.outbox.filter((row) => row.kind === "reply"),
+    ).toHaveLength(0);
+    expect(
+      harness.conversations.get(conversationId).extractionFallbackAckSent,
+    ).toBe(false);
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
+  });
+
+  it("raises attention and alerts the operator exactly once", async () => {
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    expect(harness.conversations.get(conversationId).needsAttention).toBe(true);
+    // Named and anchored: nothing structured came out of this burst, and the
+    // testimony the dead run was reading is what the operator has to record by
+    // hand. A bare flag here said only that something was wrong.
+    expect(
+      harness.conversations.get(conversationId).attentionReasons,
+    ).toMatchObject([
+      { kind: "extraction_failed", messageId: p1, resolvedAt: null },
+    ]);
+    expect(harness.alert.raised).toHaveLength(1);
+    expect(harness.alert.raised[0]).toMatchObject({
+      conversationId,
+      campaignId,
+      reason: "extraction_failed",
+      detail: ["provider_refusal"],
+    });
+  });
+
+  it("stays silent across separate failing runs", async () => {
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+    harness.conversations.pushStored(conversationId, {
+      id: p2,
+      seq: harness.conversations.get(conversationId).messages.length + 1,
+      actor: "participant",
+      text: "Και ο Νίκος ήταν ωραίος",
+      ingressId: secondIngressId,
+      outboxId: null,
+      at: new Date("2026-07-26T12:01:00.000Z"),
+    });
+
+    const second = await harness.fallback.apply({
+      conversationId,
+      correlationId: "correlation-2",
+      cause: "provider_error",
+    });
+
+    expect(second.applied).toBe(true);
+    expect(second.outboxId).toBeUndefined();
+    expect(harness.repository.notes).toHaveLength(2);
+    expect(
+      harness.repository.outbox.filter((row) => row.kind === "reply"),
+    ).toHaveLength(0);
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
+    expect(
+      harness.conversations.get(conversationId).extractionFallbackAckSent,
+    ).toBe(false);
+  });
+
+  it("writes nothing a second time when the failure replays", async () => {
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+    const replay = await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    // The per-testimony fence absorbs replays of the same dead run.
+    expect(replay.applied).toBe(false);
+    expect(harness.repository.notes).toHaveLength(1);
+    expect(harness.repository.outbox).toHaveLength(1);
+    expect(harness.audit.events).toHaveLength(1);
+    expect(harness.alert.raised).toHaveLength(1);
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
+    expect(harness.repository.outboxLogs).toHaveLength(1);
+  });
+
+  it("repairs an already-awaiting replay without publishing successor work", async () => {
+    const conversation = harness.conversations.get(conversationId);
+    const work = conversation.work;
+    expect(work).toBeDefined();
+    const revision = work!.revision;
+    conversation.awaitingHuman = true;
+    work!.nextActionAt = new Date("2026-07-26T12:00:45.000Z");
+
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "validation_failed",
+    });
+
+    expect(conversation.awaitingHuman).toBe(true);
+    expect(conversation.work).toMatchObject({
+      revision,
+      nextActionAt: null,
+      executionEpoch: 3,
+      campaignResumeGeneration: 2,
+    });
+    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+  });
+
+  it("cancels an older queued bot question before parking for a person", async () => {
+    harness.repository.outbox.push({
+      id: randomUUID(),
+      conversationId,
+      campaignId,
+      kind: "reply",
+      body: "stale question",
+      dedupeKey: "stale-question",
+      status: "pending",
+    });
+
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    expect(
+      harness.repository.outbox.find(
+        (row) => row.dedupeKey === "stale-question",
+      )?.status,
+    ).toBe("cancelled");
+  });
+
+  describe("subject resolution (D16 candidates, D18 degradation)", () => {
+    it("directs the note when exactly one candidate name appears", async () => {
+      harness.events.candidates = [
+        { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
+        { participantId: eleni, displayName: "Ελένη Νικολάου" },
+      ];
+
+      const result = await harness.fallback.apply({
+        conversationId,
+        correlationId,
+        cause: "provider_refusal",
+      });
+
+      expect(result.subjectParticipantId).toBe(kostasOne);
+      expect(harness.repository.notes[0]?.subjectParticipantId).toBe(kostasOne);
+      expect(harness.repository.notes[0]?.extractionMeta).not.toHaveProperty(
+        "flaggedForReview",
+      );
+    });
+
+    it("stays subjectless when two candidates share the name", async () => {
+      // Both ids are valid, so a correct pick and a lucky guess are the same
+      // move. The extraction prompt asks a clarifying question; a deterministic
+      // fallback has no such option and must not assert anything.
+      const result = await harness.fallback.apply({
+        conversationId,
+        correlationId,
+        cause: "provider_refusal",
+      });
+
+      expect(result.subjectParticipantId).toBeNull();
+      expect(harness.repository.notes[0]?.subjectParticipantId).toBeNull();
+      expect(harness.repository.notes[0]?.extractionMeta).toMatchObject({
+        flaggedForReview: true,
+      });
+    });
+
+    it("stays subjectless when no candidate is named", async () => {
+      harness.conversations.setLastParticipantText(
+        conversationId,
+        "Ήταν απαίσια η βραδιά",
+      );
+
+      const result = await harness.fallback.apply({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.subjectParticipantId).toBeNull();
+    });
+
+    it("ignores a name that is no longer a current candidate", async () => {
+      harness.events.candidates = [
+        { participantId: eleni, displayName: "Ελένη Νικολάου" },
+      ];
+
+      const result = await harness.fallback.apply({
+        conversationId,
+        correlationId,
+        cause: "provider_refusal",
+      });
+
+      expect(result.subjectParticipantId).toBeNull();
+    });
+
+    it("matches a folded given name against a full display name", async () => {
+      harness.events.candidates = [
+        { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
+      ];
+      harness.conversations.setLastParticipantText(
+        conversationId,
+        "ο κωστας ηταν απαισιος",
+      );
+
+      const result = await harness.fallback.apply({
+        conversationId,
+        correlationId,
+        cause: "provider_refusal",
+      });
+
+      expect(result.subjectParticipantId).toBe(kostasOne);
+    });
+  });
+
+  it("records every bounded cause class it is given", async () => {
+    for (const cause of [
+      "provider_refusal",
+      "provider_error",
+      "validation_failed",
+      "unknown",
+    ] as const) {
+      harness = createHarness();
+      await harness.fallback.apply({ conversationId, correlationId, cause });
+
+      expect(harness.audit.events[0]).toMatchObject({ context: { cause } });
+      expect(harness.repository.notes[0]?.extractionMeta).toMatchObject({
+        cause,
+      });
+    }
+  });
+
+  it("flags attention but writes nothing when there is no participant turn", async () => {
+    harness.conversations.replaceMessages(conversationId, [
+      feedbackStoredMessage({
+        id: b1,
+        seq: 1,
+        actor: "bot",
+        text: "Γεια σου!",
+        ingressId: null,
+        outboxId: botOutboxId,
+        at: new Date("2026-07-26T12:00:00.000Z"),
+      }),
+    ]);
+
+    const result = await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "unknown",
+    });
+
+    // A note with no source message would have no provenance, and an
+    // acknowledgement would answer a message nobody sent.
+    expect(result.applied).toBe(false);
+    expect(harness.repository.notes).toHaveLength(0);
+    expect(harness.repository.outbox).toHaveLength(0);
+    expect(harness.conversations.get(conversationId).needsAttention).toBe(true);
+    // A run with no testimony has nothing to point at, and says so rather than
+    // anchoring the operator on the bot's own greeting.
+    expect(
+      harness.conversations.get(conversationId).attentionReasons,
+    ).toMatchObject([{ kind: "extraction_failed", messageId: null }]);
+  });
+
+  it("does not clear extractionFallbackAckSent when acknowledgement was already sent", async () => {
+    harness.conversations.get(conversationId).extractionFallbackAckSent = true;
+    harness.conversations.pushStored(conversationId, {
+      id: p2,
+      seq: harness.conversations.get(conversationId).messages.length + 1,
+      actor: "participant",
+      text: "Και ο Νίκος ήταν ωραίος",
+      ingressId: secondIngressId,
+      outboxId: null,
+      at: new Date("2026-07-26T12:01:00.000Z"),
+    });
+
+    await harness.fallback.apply({
+      conversationId,
+      correlationId: "correlation-2",
+      cause: "provider_error",
+    });
+
+    expect(
+      harness.conversations.get(conversationId).extractionFallbackAckSent,
+    ).toBe(true);
+    expect(
+      harness.repository.outbox.filter((row) => row.kind === "reply"),
+    ).toHaveLength(0);
+  });
+
+  describe("parking a provider incident", () => {
+    it("says nothing, files nothing and asks for nobody", async () => {
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.parked).toBe(true);
+      // The whole point, against the 2026-07-27 inbox: no note, no message, no
+      // badge, no page. One number at campaign level is what an operator gets.
+      expect(harness.repository.notes).toHaveLength(0);
+      expect(harness.repository.outbox).toHaveLength(0);
+      expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        false,
+      );
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toHaveLength(0);
+      expect(harness.alert.raised).toHaveLength(0);
+      // But it is on the record, once per run, with the class and the start.
+      expect(harness.audit.events).toHaveLength(1);
+      expect(harness.audit.events[0]).toMatchObject({
+        action: "feedback_conversation.extraction_parked",
+        entityId: conversationId,
+        context: { cause: "provider_error", parkedRuns: 1 },
+      });
+    });
+
+    it("queues the next attempt, which is the ladder that outlives the job", async () => {
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      const expectedId = createFeedbackReconcileConversationJobId(
+        conversationId,
+        1,
+      );
+      expect(result.retryJobId).toBe(expectedId);
+      expect(harness.wakeups.schedule).toHaveBeenCalledWith({
+        conversationId,
+        nextActionAt: expect.any(Date),
+        correlationId,
+        at: expect.any(Date),
+      });
+      const scheduled = harness.wakeups.schedule.mock.calls[0]?.[0] as {
+        nextActionAt: Date;
+        at: Date;
+      };
+      expect(scheduled.nextActionAt.getTime() - scheduled.at.getTime()).toBe(
+        FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+      );
+    });
+
+    it("gives each successive park its own job id and keeps the start time", async () => {
+      await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+      const first =
+        harness.conversations.get(conversationId).extraction.parkedSince;
+
+      const second = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      // Every durable schedule advances the conversation work revision, so a
+      // retained earlier wake-up cannot suppress the next parked retry.
+      expect(second.retryJobId).toBe(
+        createFeedbackReconcileConversationJobId(conversationId, 2),
+      );
+      expect(harness.wakeups.schedule).toHaveBeenCalledTimes(2);
+      // And the clock the notice is measured against does not restart.
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedSince,
+      ).toBe(first);
+    });
+
+    it("says nothing to the participant before the half-hour mark", async () => {
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(
+          Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS + 60_000,
+        );
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.noticeOutboxId).toBeUndefined();
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("sends one apology once the half hour is up, and only one", async () => {
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
+
+      const first = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(first.noticeOutboxId).toBeDefined();
+      expect(harness.repository.outbox).toHaveLength(1);
+      expect(harness.repository.outbox[0]).toMatchObject({
+        kind: "system",
+        body: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+        dedupeKey:
+          createFeedbackExtractionParkedNoticeDedupeKey(conversationId),
+      });
+      // It reaches the transcript as a bot turn, like every other outbound.
+      expect(
+        harness.conversations.transcript(conversationId).at(-1),
+      ).toMatchObject({
+        actor: "bot",
+        text: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+      });
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedNoticeSentAt,
+      ).not.toBeNull();
+      expect(harness.repository.outboxLogs).toEqual([
+        expect.objectContaining({
+          outboxId: harness.repository.outbox[0]?.id,
+          origin: "extraction_parked_notice",
+          decision: {
+            origin: "extraction_parked_notice",
+            cause: "provider_error",
+          },
+        }),
+      ]);
+
+      // Six hours parked is not six apologies.
+      const second = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+      expect(second.noticeOutboxId).toBeUndefined();
+      expect(harness.repository.outbox).toHaveLength(1);
+      expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
+      expect(harness.repository.outboxLogs).toHaveLength(1);
+    });
+
+    it("stays quiet when the deterministic fallback has already spoken", async () => {
+      harness.conversations.get(conversationId).extractionFallbackAckSent =
+        true;
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
+
+      await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      // Two machine apologies for one silence is one too many.
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("stays quiet while a person holds the conversation", async () => {
+      harness.conversations.get(conversationId).control = {
+        mode: "human",
+        source: "staff_action",
+        changedAt: harness.conversations.get(conversationId).control.changedAt,
+      };
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
+
+      await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(harness.repository.outbox).toHaveLength(0);
+      // The park itself is still recorded: the incident happened either way.
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedRuns,
+      ).toBe(1);
+    });
+
+    it("stops re-queueing once the ceiling is reached, and stays parked", async () => {
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_MAX_MS - 1_000);
+      harness.conversations.get(conversationId).extraction.parkedNoticeSentAt =
+        new Date();
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.retryJobId).toBeUndefined();
+      expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+      // Still parked, still counted at campaign level, still nobody's inbox row.
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedSince,
+      ).not.toBeNull();
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        false,
+      );
+    });
+
+    it("does not queue a retry for a closed conversation", async () => {
+      harness.conversations.get(conversationId).lifecycle = {
+        state: "closed",
+        reason: "completed",
+        closedAt: new Date("2026-07-26T13:00:00.000Z"),
+      };
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      // The run would exit on `skipped_closed`; queueing it would make the queue
+      // lie about what is outstanding.
+      expect(result.parked).toBe(true);
+      expect(result.retryJobId).toBeUndefined();
+      expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+    });
+
+    it("parks nothing when the conversation is gone", async () => {
+      harness.conversations.documents.clear();
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.parked).toBe(false);
+      expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+      expect(harness.audit.events).toHaveLength(0);
+    });
+  });
+
+  it("does nothing at all when the conversation is gone", async () => {
+    harness.conversations.documents.clear();
+
+    const result = await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "unknown",
+    });
+
+    expect(result.applied).toBe(false);
+    expect(harness.alert.raised).toHaveLength(0);
+  });
+});
+
+interface FakeNoteRow {
+  id: string;
+  campaignId: string;
+  conversationId: string;
+  respondentParticipantId: string;
+  subjectParticipantId: string | null;
+  noteType: string;
+  text: string;
+  sourceMessageIds: readonly string[];
+  extractionMeta: Record<string, unknown>;
+  status: string;
+}
+
+interface FakeOutboxRow {
+  id: string;
+  conversationId: string;
+  campaignId: string;
+  kind: string;
+  body: string;
+  dedupeKey: string;
+  status: string;
+}
+
+// Deliberately does not serialise on a promise tail; the shared FakeDatabase
+// would. Leave this local so concurrent runs can interleave.
+class FakeDatabase {
+  async transaction<T>(work: (transaction: AppTransaction) => Promise<T>) {
+    return work({} as AppTransaction);
+  }
+}
+
+interface FakeOutboxLogRow {
+  id: string;
+  outboxId: string;
+  conversationId: string;
+  campaignId: string;
+  origin: string;
+  correlationId: string;
+  decision: FeedbackOutboundDecision;
+  conversationState: OutboundConversationSnapshot;
+  createdAt: Date;
+}
+
+class FakeFeedbackRepository {
+  readonly notes: FakeNoteRow[] = [];
+  readonly outbox: FakeOutboxRow[] = [];
+  readonly outboxLogs: FakeOutboxLogRow[] = [];
+  readonly campaigns = new Map<string, { id: string; eventId: string }>();
+
+  async lockConversation(): Promise<void> {}
+
+  async findCampaignById(id: string) {
+    return this.campaigns.get(id);
+  }
+
+  async insertNote(
+    _transaction: AppTransaction,
+    input: Omit<FakeNoteRow, "id" | "subjectParticipantId" | "status"> & {
+      subjectParticipantId?: string | null;
+      status?: string;
+    },
+  ): Promise<FakeNoteRow> {
+    const row: FakeNoteRow = {
+      ...input,
+      id: randomUUID(),
+      subjectParticipantId: input.subjectParticipantId ?? null,
+      status: input.status ?? "new",
+    };
+    this.notes.push(row);
+    return row;
+  }
+
+  async insertOutboxIfAbsent(
+    _transaction: AppTransaction,
+    input: Omit<FakeOutboxRow, "id" | "status">,
+  ): Promise<{ row: FakeOutboxRow; inserted: boolean }> {
+    const existing = this.outbox.find(
+      (row) => row.dedupeKey === input.dedupeKey,
+    );
+    if (existing) {
+      return { row: { ...existing }, inserted: false };
+    }
+    const row: FakeOutboxRow = {
+      ...input,
+      id: randomUUID(),
+      status: "pending",
+    };
+    this.outbox.push(row);
+    return { row: { ...row }, inserted: true };
+  }
+
+  async insertOutboxLogIfAbsent(
+    _transaction: AppTransaction,
+    input: {
+      outboxId: string;
+      conversationId: string;
+      campaignId: string;
+      origin: string;
+      correlationId: string;
+      decision: FeedbackOutboundDecision;
+      conversationState: OutboundConversationSnapshot;
+    },
+  ): Promise<{ row: FakeOutboxLogRow; inserted: boolean }> {
+    const existing = this.outboxLogs.find(
+      (row) => row.outboxId === input.outboxId,
+    );
+    if (existing) {
+      return { row: { ...existing }, inserted: false };
+    }
+    const row: FakeOutboxLogRow = {
+      id: randomUUID(),
+      outboxId: input.outboxId,
+      conversationId: input.conversationId,
+      campaignId: input.campaignId,
+      origin: input.origin,
+      correlationId: input.correlationId,
+      decision: input.decision,
+      conversationState: input.conversationState,
+      createdAt: new Date(),
+    };
+    this.outboxLogs.push(row);
+    return { row: { ...row }, inserted: true };
+  }
+
+  async updateOutboxStatus(
+    _transaction: AppTransaction,
+    id: string,
+    status: string,
+  ): Promise<void> {
+    const row = this.outbox.find((candidate) => candidate.id === id);
+    if (row) {
+      row.status = status;
+    }
+  }
+
+  async cancelQueuedAutomatedOutboxForConversation(
+    _transaction: AppTransaction,
+    targetConversationId: string,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === targetConversationId &&
+        row.kind !== "staff" &&
+        ["pending", "held", "claimed"].includes(row.status)
+      ) {
+        row.status = "cancelled";
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+}
+
+interface Harness {
+  fallback: PostEventFeedbackExtractionFallback;
+  repository: FakeFeedbackRepository;
+  conversations: FakeFeedbackConversations;
+  events: FakeEvents;
+  audit: FakeAudit;
+  alert: { raised: FeedbackOperatorAlertInput[] };
+  wakeups: {
+    schedule: ReturnType<typeof vi.fn>;
+  };
+}
+
+function createHarness(): Harness {
+  const repository = new FakeFeedbackRepository();
+  const conversations = new FakeFeedbackConversations();
+  const events = new FakeEvents();
+  const audit = new FakeAudit();
+  const alert = {
+    raised: [] as FeedbackOperatorAlertInput[],
+    async raise(input: FeedbackOperatorAlertInput): Promise<void> {
+      this.raised.push(input);
+    },
+  };
+
+  repository.campaigns.set(campaignId, { id: campaignId, eventId });
+  // Two Κώστας by default: the ambiguous case is the interesting one, so the
+  // tests that want a resolvable subject narrow the set explicitly.
+  events.candidates = [
+    { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
+    { participantId: kostasTwo, displayName: "Κώστας Δήμου" },
+    { participantId: eleni, displayName: "Ελένη Νικολάου" },
+  ];
+
+  conversations.seed(
+    feedbackConversationFixture({
+      _id: conversationId,
+      campaignId,
+      respondentParticipantId: respondentId,
+      createdAt: new Date("2026-07-26T11:55:00.000Z"),
+      goals: [
+        {
+          key: "event_score",
+          ordinal: 1,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.event_score,
+          status: "answered",
+        },
+        {
+          key: "liked",
+          ordinal: 2,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked,
+          status: "asked",
+        },
+        {
+          key: "avoid",
+          ordinal: 3,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.avoid,
+          status: "pending",
+        },
+      ],
+      messages: [
+        feedbackStoredMessage({
+          id: p1,
+          seq: 1,
+          actor: "participant",
+          text: disclosure,
+          ingressId: firstIngressId,
+          outboxId: null,
+          at: new Date("2026-07-26T12:00:00.000Z"),
+        }),
+      ],
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: new Date("2026-07-26T11:55:00.000Z"),
+      },
+      work: {
+        revision: 7,
+        nextActionAt: null,
+        executionEpoch: 3,
+        campaignResumeGeneration: 2,
+      },
+    }),
+  );
+
+  const database = new FakeDatabase();
+  let workRevision = 0;
+  const wakeups = {
+    schedule: vi.fn(
+      async (input: { conversationId: string }): Promise<string> =>
+        createFeedbackReconcileConversationJobId(
+          input.conversationId,
+          (workRevision += 1),
+        ),
+    ),
+  };
+  const fallback = new PostEventFeedbackExtractionFallback(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    events as unknown as EventsService,
+    audit as unknown as AuditRepository,
+    new FeedbackOutboundTranscriptService(
+      repository as unknown as FeedbackOutboxRepository,
+      conversations as unknown as FeedbackConversationRepository,
+    ),
+    new FeedbackOutboundIntentService(
+      repository as unknown as FeedbackOutboxRepository,
+      new FeedbackOutboundLogService(
+        repository as unknown as FeedbackOutboundLogRepository,
+      ),
+    ),
+    alert,
+    wakeups as unknown as FeedbackConversationWakeupService,
+  );
+
+  return {
+    fallback,
+    repository,
+    conversations,
+    events,
+    audit,
+    alert,
+    wakeups,
+  };
+}

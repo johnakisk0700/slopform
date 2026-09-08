@@ -1,0 +1,9 @@
+{
+  "extends": "../apps/backend/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true
+  },
+  "include": ["feedback/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -27,7 +27,7 @@ For feedback refactoring, use the examples and ownership rules in the
 | Add a migration      | Drizzle schema → named SQL/metadata under `packages/database/drizzle/`; review locks/data effects; `db:check`; update the database mechanism page.                                                                                                                             |
 | Add a test           | Co-locate focused `*.spec.ts`. HTTP routes build the real app (see "Environment and operation" in `docs/backend.md`). Adapter semantics: real PostgreSQL/Redis with bounded exact cleanup, not mocked fluent internals.                                                        |
 
-**No ESLint here.** `pnpm lint` ≡ `typecheck` (`tsc -p tsconfig.json --noEmit`).
+**No ESLint or duplicate lint task here.** `typecheck` runs `tsc -p tsconfig.json --noEmit`.
 Style is review + matching surrounding code.
 
 OpenAPI: commit `apps/backend/openapi/openapi.json` only — emitted by

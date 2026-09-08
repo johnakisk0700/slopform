@@ -251,7 +251,7 @@ that the mechanism refactor is complete. Test reorganization stays deferred.
 
 Finish the production mechanism boundaries before reorganizing the large legacy
 test suites. The module's
-[`vibes/`](../../../apps/backend/src/modules/post-event-feedback/vibes/README.md)
+[`vibes/`](../../../harness/README.md)
 holds the extraction and staff-action suites plus shared loop harnesses while
 their structure awaits review. The folder marks readability debt; it does not
 disable tests or establish that their assertions are wrong.

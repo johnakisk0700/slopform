@@ -1,0 +1,1581 @@
+import { PendingFeedbackIngressService } from "../../apps/backend/src/modules/post-event-feedback/ingress/pending-ingress.service.js";
+import { FeedbackStopService } from "../../apps/backend/src/modules/post-event-feedback/ingress/stop.service.js";
+import { FeedbackInboundMessageService } from "../../apps/backend/src/modules/post-event-feedback/ingress/inbound-message.service.js";
+import { FeedbackClosedConversationIngressService } from "../../apps/backend/src/modules/post-event-feedback/ingress/closed-conversation-ingress.service.js";
+import { FeedbackObservedOutboundService } from "../../apps/backend/src/modules/post-event-feedback/ingress/observed-outbound.service.js";
+import { FeedbackDispatchSettlementService } from "../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-settlement.service.js";
+import { FeedbackDispatchPreparationService } from "../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-preparation.service.js";
+import { FeedbackDispatchRecoveryService } from "../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-recovery.service.js";
+import { FeedbackDispatchAttemptService } from "../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-attempt.service.js";
+import { Logger } from "@nestjs/common";
+import type { ConfigService } from "@nestjs/config";
+import { UnrecoverableError, type Job, type Queue } from "bullmq";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import type { AuditRepository } from "../../apps/backend/src/infrastructure/audit/audit.repository.js";
+import type { Environment } from "../../apps/backend/src/infrastructure/config/environment.js";
+import type { DatabaseService } from "../../apps/backend/src/infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.js";
+import {
+  buildFeedbackConversationGoals,
+  deriveFeedbackConversationId,
+  resolveFeedbackConversationWork,
+  type FeedbackConversationGoal,
+} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.document.js";
+import type { EventsRepository } from "../../apps/backend/src/modules/events/events.repository.js";
+import type { EventsService } from "../../apps/backend/src/modules/events/events.service.js";
+import type { ParticipantsRepository } from "../../apps/backend/src/modules/participants/participants.repository.js";
+import { phoneE164ToChatJid } from "../../apps/backend/src/integrations/wasender/wasender.jid.js";
+import type { FeedbackOperatorAlert } from "../../apps/backend/src/modules/post-event-feedback/operator-alert.js";
+import { FeedbackOutboundLogService } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
+import type { FeedbackOutboundLogRepository } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
+import { FeedbackOutboundTranscriptService } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
+import type { FeedbackTransport } from "../../apps/backend/src/modules/post-event-feedback/outbox/transport.js";
+import { MessageOutboxDispatcherService } from "../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.js";
+import { PostEventFeedbackExtractionFallback } from "../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.js";
+import {
+  FeedbackExtractionGenerationError,
+  isFeedbackProviderIncident,
+  type PostEventFeedbackExtractionModel,
+} from "../../apps/backend/src/integrations/llm/feedback-extraction-model.service.js";
+import {
+  POST_EVENT_FEEDBACK_FALLBACK_ACK,
+  POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+  POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY,
+} from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction.schemas.js";
+import {
+  PostEventFeedbackCampaignNotFoundError,
+  PostEventFeedbackConversationNotFoundError,
+  PostEventFeedbackExtractor,
+} from "../../apps/backend/src/modules/post-event-feedback/extraction/extract.service.js";
+import { FeedbackExtractionAdmissionService } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-admission.service.js";
+import { FeedbackModelContextBuilder } from "../../apps/backend/src/modules/post-event-feedback/extraction/model-context.service.js";
+import { FeedbackAiTurnAnalysis } from "../../apps/backend/src/modules/post-event-feedback/extraction/ai-turn-analysis.service.js";
+import { FeedbackParticipantReplyPlanner } from "../../apps/backend/src/modules/post-event-feedback/extraction/participant-reply.service.js";
+import { FeedbackExtractionResultsWriter } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-results-writer.service.js";
+import { FeedbackExtractionStateApplier } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-state.service.js";
+import { FeedbackExtractionCapacityService } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-capacity.service.js";
+import { FeedbackExtractionGuards } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-guards.service.js";
+import { FeedbackExtractionTurnService } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-turn.service.js";
+import { FeedbackExtractionCommitService } from "../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../../apps/backend/src/modules/post-event-feedback/extraction/execution-fence.repository.js";
+import type { FeedbackConversationExecutionFence } from "../../apps/backend/src/modules/post-event-feedback/extraction/execution-fence.service.js";
+import { PostEventFeedbackIngressService } from "../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "../../apps/backend/src/modules/post-event-feedback/ingress/materialize-wakeup.service.js";
+import { PostEventFeedbackConversationService } from "../../apps/backend/src/modules/post-event-feedback/inbox/conversation.service.js";
+import {
+  FakeAudit,
+  FakeDatabase,
+  FakeEvents,
+  FakeFeedbackConversations,
+  FakeFeedbackRepository,
+  FakeOperatorAlert,
+  FakeParticipants,
+  FEEDBACK_TEST_DEFAULT_JOB_ATTEMPTS,
+  RecordingFeedbackTransport,
+  noopSummaries,
+  type FakeOutboxRow,
+} from "./post-event-feedback-doubles.harness.js";
+import { PostEventFeedbackMaterializer } from "../../apps/backend/src/modules/post-event-feedback/ingress/materialize.service.js";
+import {
+  PostEventFeedbackMaterializationCoordinator,
+  type FeedbackMaterializationLimiter,
+} from "../../apps/backend/src/modules/post-event-feedback/ingress/materialization-coordinator.service.js";
+import { PostEventFeedbackMetrics } from "../../apps/backend/src/modules/post-event-feedback/metrics.service.js";
+import type {
+  FeedbackAnswerQuestionKey,
+  FeedbackNoteType,
+} from "@slopform/database";
+import {
+  CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
+  createFeedbackIntroDedupeKey,
+  getPostEventFeedbackQuestionSet,
+  renderPostEventFeedbackCopy,
+} from "../../apps/backend/src/modules/post-event-feedback/question-set.js";
+import { PostEventFeedbackIngressProcessor } from "../../apps/backend/src/modules/post-event-feedback/ingress/ingress.processor.js";
+import type { FeedbackCampaignRepository } from "../../apps/backend/src/modules/post-event-feedback/campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../../apps/backend/src/modules/post-event-feedback/extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "../../apps/backend/src/modules/post-event-feedback/ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.js";
+import { PostEventFeedbackSweepService } from "../../apps/backend/src/modules/post-event-feedback/sweeps/sweep.service.js";
+import {
+  FEEDBACK_JOB_NAMES,
+  FEEDBACK_JOB_SCHEMA_VERSION_V2,
+  boundObservedMessageText,
+  type FeedbackJobData,
+  type FeedbackJobName,
+} from "../../apps/backend/src/modules/post-event-feedback/jobs.schemas.js";
+import { FeedbackConversationInactivityService } from "../../apps/backend/src/modules/post-event-feedback/reconciliation/conversation-inactivity.service.js";
+import { FeedbackConversationReconcileService } from "../../apps/backend/src/modules/post-event-feedback/reconciliation/reconcile.service.js";
+import { FeedbackConversationWakeupService } from "../../apps/backend/src/modules/post-event-feedback/reconciliation/wakeup.service.js";
+import { PostEventFeedbackMaintenanceService } from "../../apps/backend/src/modules/post-event-feedback/sweeps/maintenance.service.js";
+import { FEEDBACK_SWEEP_EVERY_MS } from "../../apps/backend/src/modules/post-event-feedback/sweeps/sweep-scheduler.service.js";
+import {
+  ScriptedExtractionModel,
+  SCRIPT_MODEL,
+} from "./post-event-feedback-loop-model.harness.js";
+import {
+  CAMPAIGN_ID,
+  DEFAULT_CANDIDATES,
+  DEFAULT_PHONE,
+  DEFAULT_RESPONDENT,
+  EVENT_ID,
+  FEEDBACK_LOOP_START,
+  FEEDBACK_RECEIVED_KINDS,
+  MAX_DRAIN_STEPS,
+  PERSON_IDS,
+  TEST_STAFF_ID,
+  parseDuration,
+  type ExpectedJobFailure,
+  type FeedbackExternalAction,
+  type FeedbackLoopOutcome,
+  type FeedbackReceivedKind,
+  type FeedbackScenario,
+  type FeedbackScenarioVenue,
+  type FeedbackScenarioSuiteOptions,
+  type FeedbackSeedOptions,
+  type FeedbackStep,
+  type ModelFailure,
+  type ScenarioDuration,
+} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-scenario.js";
+
+export {
+  DEFAULT_RESPONDENT,
+  FEEDBACK_RECEIVED_KINDS,
+  type AttentionTurn,
+  type Cite,
+  type ExpectedFeedbackOutcome,
+  type ExpectedJobFailure,
+  type FeedbackExternalAction,
+  type FeedbackLoopOutcome,
+  type FeedbackReceivedKind,
+  type FeedbackReceivedMessage,
+  type FeedbackScenario,
+  type FeedbackScenarioVenue,
+  type FeedbackScenarioSuiteOptions,
+  type FeedbackSeedOptions,
+  type FeedbackStep,
+  type FeedbackTranscriptEntry,
+  type ModelFailure,
+  type ModelTurn,
+  type ScenarioDuration,
+  type ScriptedAnswer,
+  type ScriptedAttention,
+  type ScriptedNote,
+} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-scenario.js";
+export {
+  ScriptedExtractionModel,
+  type ScriptedModelPause,
+} from "./post-event-feedback-loop-model.harness.js";
+
+/**
+ * Fake-backed behavioural harness for the post-event feedback conversation
+ * loop. This is deliberately not an E2E test: no real store, Redis worker or
+ * provider participates.
+ *
+ * The whole loop runs for real — ingress, materializer, extractor, validation,
+ * the deterministic fallback, direct outbox dispatch, maintenance and the V2
+ * reconciliation wake-up with its retry classification. Only five things are
+ * faked, and each is a genuine boundary: the conversation and relational
+ * repositories, the queue, the
+ * WhatsApp transport and the model provider
+ * (`post-event-feedback-doubles.harness.ts`).
+ *
+ * ## What a scenario may say
+ *
+ * **Input** is only ever an external observation or action: a message arrived,
+ * an outbound was observed on the shared session, time passed, staff acted, or
+ * an upstream campaign/consent gate changed. Nothing reaches into an extractor
+ * or mutates a conversation aggregate directly.
+ *
+ * **Assertions** are outcomes, never mechanism. `outcome()` is the entire
+ * assertion vocabulary and it deliberately exposes no job id, no queue state,
+ * no delay, no extraction cursor, no goal status, no rejection reason, no
+ * ingress processing status and no UUID. Those are all scheduled for deletion
+ * by §7 of the loop plan (extraction at rest); a suite that asserts them would
+ * have to be rewritten alongside it, which is the opposite of what it is for.
+ *
+ * ## How to write an assertion that survives a refactor
+ *
+ * Dozens of scenarios share this harness. If every one pins a full picture, an
+ * ordinary code change breaks forty tests and the team spends its life
+ * repairing them. So:
+ *
+ * 1. **Always `toMatchObject`, never `toEqual`, and never a snapshot file.** A
+ *    snapshot breaks on every unrelated field, which is exactly the failure
+ *    mode this suite must not have.
+ * 2. **Assert two to four facts — only what the scenario is about.** A STOP
+ *    scenario says nothing about answers. A fragmentation scenario says nothing
+ *    about lifecycle. Leaving a key out is not laziness, it is the design.
+ * 3. **Never assert model-written text verbatim.** Reply wording comes from the
+ *    model and will change. Assert the *kind* and the *count* of what the
+ *    participant received (`received: [{ kind: "reply" }]`, or
+ *    `receivedCount: { reply: 1 }`). Copy the application owns — the closing
+ *    line, the handoff line, the STOP acknowledgement — may be asserted
+ *    verbatim, because it is ours.
+ * 4. **Transcript order is a first-class assertion.** An out-of-order webhook
+ *    can invert what a split thought means, so `transcript` is an ordered list
+ *    of `{ who, text, kind }` read the way a human reads the admin pane.
+ *    Assert that sequence; never assert `seq`, timestamps or storage order.
+ * 5. **Prefer counts and kinds over identities** wherever identity is not the
+ *    point of the scenario.
+ *
+ * The trade is explicit: a looser individual test catches less on its own, and
+ * the breadth of the suite is what does the catching instead. That is the
+ * right balance here. Do not "improve" this suite by tightening it.
+ *
+ * ## The known-defect ledger
+ *
+ * Many scenarios describe behaviour the code gets wrong today. **Never write a
+ * test that asserts current broken behaviour as the desired contract.** Keep
+ * `expect` as the desired outcome and add `knownCurrent`. The runner requires
+ * the observed outcome to match that exact diagnostic subset and requires it
+ * not to match the desired outcome. A random worker crash therefore cannot
+ * turn a known-defect row green, unlike bare `it.fails`.
+ */
+
+// ── The queue ───────────────────────────────────────────────────────────────
+
+interface QueuedJob {
+  readonly id: string;
+  readonly name: FeedbackJobName;
+  readonly data: FeedbackJobData;
+  readonly runAt: number;
+  readonly attempts: number;
+  readonly enqueueSeq: number;
+  attemptsMade: number;
+}
+
+/**
+ * BullMQ's semantics, as far as they are observable from a scenario: an `add`
+ * for a job id that is still waiting is a no-op, a completed job releases its
+ * id, `delay` is honoured against the test clock, and jobs drain in `runAt`
+ * order at concurrency one.
+ */
+class FakeFeedbackQueue {
+  private readonly waiting = new Map<string, QueuedJob>();
+  private sequence = 0;
+
+  constructor(private readonly nowMs: () => number) {}
+
+  async add(
+    name: FeedbackJobName,
+    data: FeedbackJobData,
+    options?: { jobId?: string; delay?: number; attempts?: number },
+  ): Promise<{ id: string }> {
+    this.sequence += 1;
+    const id = options?.jobId ?? `${name}-${this.sequence}`;
+    if (!this.waiting.has(id)) {
+      this.waiting.set(id, {
+        id,
+        name,
+        data,
+        runAt: this.nowMs() + (options?.delay ?? 0),
+        attempts: options?.attempts ?? FEEDBACK_TEST_DEFAULT_JOB_ATTEMPTS,
+        enqueueSeq: this.sequence,
+        attemptsMade: 0,
+      });
+    }
+    return { id };
+  }
+
+  /**
+   * Detail-pane extraction status inspects retained jobs. Map waiting entries
+   * onto the BullMQ shape that reader expects; absence stays `null`.
+   */
+  async getJob(jobId: string): Promise<{
+    timestamp: number;
+    opts: { delay: number };
+    getState: () => Promise<"delayed" | "waiting">;
+    failedReason: undefined;
+  } | null> {
+    const job = this.waiting.get(jobId);
+    if (!job) {
+      return null;
+    }
+    const delay = Math.max(0, job.runAt - this.nowMs());
+    return {
+      timestamp: job.runAt - delay,
+      opts: { delay },
+      getState: async () => (delay > 0 ? "delayed" : "waiting"),
+      failedReason: undefined,
+    };
+  }
+
+  /** The schedulers run at bootstrap; the harness owns repeat cadence instead. */
+  async upsertJobScheduler(): Promise<void> {}
+
+  earliestDue(target: number): QueuedJob | undefined {
+    let best: QueuedJob | undefined;
+    for (const job of this.waiting.values()) {
+      if (job.runAt > target) {
+        continue;
+      }
+      if (
+        !best ||
+        job.runAt < best.runAt ||
+        (job.runAt === best.runAt && job.enqueueSeq < best.enqueueSeq)
+      ) {
+        best = job;
+      }
+    }
+    return best;
+  }
+
+  take(id: string): void {
+    this.waiting.delete(id);
+  }
+}
+
+interface Repeatable {
+  readonly id: string;
+  readonly name: FeedbackJobName;
+  readonly data: FeedbackJobData;
+  readonly everyMs: number;
+  nextAt: number;
+}
+
+// ── The harness ─────────────────────────────────────────────────────────────
+
+export interface FeedbackLoopHarness {
+  readonly conversationId: string;
+  readonly model: ScriptedExtractionModel;
+  readonly transport: RecordingFeedbackTransport;
+  readonly conversations: FakeFeedbackConversations;
+  readonly repository: FakeFeedbackRepository;
+  readonly participants: FakeParticipants;
+  readonly events: FakeEvents;
+  readonly alerts: FakeOperatorAlert;
+  readonly audit: FakeAudit;
+  readonly extractor: PostEventFeedbackExtractor;
+  /** Job failures, for debugging a surprising outcome. Not an assertion surface. */
+  readonly failures: readonly {
+    readonly job: string;
+    readonly kind?: ModelFailure;
+    readonly error: unknown;
+  }[];
+  now(): Date;
+  advance(after: ScenarioDuration): Promise<void>;
+  apply(step: FeedbackStep): Promise<void>;
+  run(steps: readonly FeedbackStep[]): Promise<void>;
+  outcome(): FeedbackLoopOutcome;
+}
+
+/**
+ * Builds one campaign, one respondent, one conversation and the whole loop
+ * around them, with the clock at {@link FEEDBACK_LOOP_START}.
+ *
+ * Only `Date` is faked. Promises and the microtask queue stay real — the
+ * services are `async` throughout, so faking timers wholesale deadlocks the
+ * drain loop. Callers outside {@link runFeedbackScenarios} must restore the
+ * clock themselves with `afterEach(() => { vi.useRealTimers(); })`.
+ */
+export async function createFeedbackLoopHarness(
+  seed: FeedbackSeedOptions = {},
+): Promise<FeedbackLoopHarness> {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(FEEDBACK_LOOP_START);
+
+  let nowMs = FEEDBACK_LOOP_START.getTime();
+  const now = (): Date => new Date(nowMs);
+  const setNow = (value: number): void => {
+    nowMs = value;
+    vi.setSystemTime(new Date(value));
+  };
+
+  const respondentName = seed.respondent ?? DEFAULT_RESPONDENT;
+  const candidateNames = seed.candidates ?? [...DEFAULT_CANDIDATES];
+  const phone = seed.phone ?? DEFAULT_PHONE;
+  const idByName = new Map<string, string>();
+  const nameById = new Map<string, string>();
+  for (const [index, name] of [respondentName, ...candidateNames].entries()) {
+    const id = PERSON_IDS[index];
+    if (!id) {
+      throw new Error("The harness seeds at most eight people");
+    }
+    idByName.set(name, id);
+    nameById.set(id, name);
+  }
+  const respondentId = idByName.get(respondentName)!;
+
+  const database = new FakeDatabase();
+  const repository = new FakeFeedbackRepository(now);
+  const conversations = new FakeFeedbackConversations();
+  const participants = new FakeParticipants();
+  const events = new FakeEvents();
+  const audit = new FakeAudit();
+  const alerts = new FakeOperatorAlert();
+  const metrics = new PostEventFeedbackMetrics();
+  const transport = new RecordingFeedbackTransport(now);
+  const model = new ScriptedExtractionModel(conversations, idByName);
+  const queue = new FakeFeedbackQueue(() => nowMs);
+  const config = {
+    get: (key: string) =>
+      ({
+        FEEDBACK_REMINDER_AFTER_HOURS: 24,
+        FEEDBACK_EXPIRE_AFTER_HOURS: 72,
+        FEEDBACK_MAX_REMINDERS: 2,
+        FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES: 5,
+      })[key],
+  } as unknown as ConfigService<Environment, true>;
+
+  const questionSetVersion =
+    seed.questionSetVersion ?? CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION;
+  const questionSet = getPostEventFeedbackQuestionSet(questionSetVersion);
+  const copy = { ...questionSet.copy };
+  repository.campaigns.set(CAMPAIGN_ID, {
+    id: CAMPAIGN_ID,
+    eventId: EVENT_ID,
+    status: seed.campaign ?? "launched",
+    questionSetVersion,
+    questions: { questionSetVersion, copy },
+  });
+  participants.rows.set(respondentId, {
+    id: respondentId,
+    preferredName: respondentName,
+    emailNormalized: `${respondentId}@example.test`,
+    phoneE164: phone,
+    postEventFeedbackWhatsappOptIn: seed.optedIn ?? true,
+  });
+  for (const name of candidateNames) {
+    const id = idByName.get(name)!;
+    participants.rows.set(id, {
+      id,
+      preferredName: name,
+      emailNormalized: `${id}@example.test`,
+      phoneE164: null,
+      postEventFeedbackWhatsappOptIn: true,
+    });
+  }
+  events.candidates = candidateNames.map((name) => ({
+    participantId: idByName.get(name)!,
+    displayName: name,
+  }));
+  events.seedVenue(
+    seed.venue ?? null,
+    seed.venueContextRevision ?? (seed.venue ? 1 : 0),
+  );
+
+  const conversationId = deriveFeedbackConversationId(
+    CAMPAIGN_ID,
+    respondentId,
+  );
+  const wantsIntro = true;
+  const goalStatuses: Partial<
+    Record<FeedbackAnswerQuestionKey, FeedbackConversationGoal["status"]>
+  > = {
+    // The catalogue's scenario zero: the intro asked the first question.
+    ...(wantsIntro ? { event_score: "asked" as const } : {}),
+    ...seed.goals,
+  };
+  conversations.seed({
+    _id: conversationId,
+    schemaVersion: 2,
+    purpose: "post_event_feedback",
+    channel: "whatsapp",
+    campaignId: CAMPAIGN_ID,
+    respondentParticipantId: respondentId,
+    phoneAtLaunch: phone,
+    lifecycle: { state: "open", reason: null, closedAt: null },
+    control: { mode: "bot", source: "launch", changedAt: FEEDBACK_LOOP_START },
+    goals: buildFeedbackConversationGoals(copy, questionSetVersion).map(
+      (goal) => ({
+        ...goal,
+        status: goalStatuses[goal.key] ?? goal.status,
+      }),
+    ),
+    messages: [],
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      usage: null,
+      serviceTier: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
+    needsAttention: false,
+    attentionReasons: [],
+    remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
+    hostileTurns: 0,
+    extractionFallbackAckSent: false,
+    createdAt: FEEDBACK_LOOP_START,
+    updatedAt: FEEDBACK_LOOP_START,
+  });
+
+  // Seeding happens before the tape starts rolling: the intro is an already
+  // delivered bot turn, so `received` only ever holds what the scenario caused.
+  if (wantsIntro) {
+    const intro = repository.seedOutbox({
+      conversationId,
+      campaignId: CAMPAIGN_ID,
+      kind: "intro",
+      body: renderPostEventFeedbackCopy(copy.intro, respondentName),
+      dedupeKey: createFeedbackIntroDedupeKey(conversationId),
+      status: "sent",
+      providerLogId: "log-seed-intro",
+      providerMessageId: "wa-seed-intro",
+      deliveryStatus: "sent",
+      sentAt: FEEDBACK_LOOP_START,
+    });
+    await conversations.appendMessage({
+      conversationId,
+      actor: "bot",
+      text: intro.body,
+      at: FEEDBACK_LOOP_START,
+      outboxId: intro.id,
+    });
+  }
+  for (const answer of seed.answers ?? []) {
+    await repository.insertAnswerIfAbsent({} as never, {
+      campaignId: CAMPAIGN_ID,
+      conversationId,
+      respondentParticipantId: respondentId,
+      subjectParticipantId: answer.about
+        ? (idByName.get(answer.about) ?? null)
+        : null,
+      questionKey: answer.question,
+      valueInt: answer.value ?? null,
+      sourceMessageIds: ["seeded"],
+      extractionMeta: { model: SCRIPT_MODEL, confidence: 1, candidateIds: [] },
+    });
+  }
+  if (seed.control === "human") {
+    await conversations.takeOver({
+      conversationId,
+      source: "staff_action",
+      at: FEEDBACK_LOOP_START,
+    });
+  }
+  if (seed.closed) {
+    await conversations.close({
+      conversationId,
+      reason: seed.closed,
+      at: FEEDBACK_LOOP_START,
+    });
+  }
+
+  const queuePort = queue as unknown as Queue<
+    FeedbackJobData,
+    void,
+    FeedbackJobName
+  >;
+  let conversationDueCursor:
+    | { readonly nextActionAt: Date; readonly conversationId: string }
+    | undefined;
+  let pendingIngressCursor:
+    { readonly createdAt: Date; readonly ingressId: string } | undefined;
+  const maintenanceCheckpoints = {
+    lockConversationDue: async () => conversationDueCursor,
+    saveConversationDue: async (
+      _transaction: unknown,
+      cursor:
+        | { readonly nextActionAt: Date; readonly conversationId: string }
+        | undefined,
+    ) => {
+      conversationDueCursor = cursor;
+    },
+    lockPendingIngress: async () => pendingIngressCursor,
+    savePendingIngress: async (
+      _transaction: unknown,
+      cursor:
+        { readonly createdAt: Date; readonly ingressId: string } | undefined,
+    ) => {
+      pendingIngressCursor = cursor;
+    },
+  };
+  const conversationWakeups = new FeedbackConversationWakeupService(
+    queuePort,
+    conversations as unknown as FeedbackConversationRepository,
+    database as unknown as DatabaseService,
+    maintenanceCheckpoints as never,
+  );
+  // Seeded rows are already-launched conversations. Production writes due
+  // work in the same launch transaction and publishes the wakeup after
+  // commit. The removed seedMissingWork helper used to invent that intent
+  // during maintenance; silence scenarios must start with the same durable
+  // due column launch would have left.
+  const seededLaunch = conversations.get(conversationId);
+  if (
+    seededLaunch.lifecycle.state === "open" &&
+    seededLaunch.control.mode === "bot"
+  ) {
+    await conversationWakeups.schedule({
+      conversationId,
+      nextActionAt: FEEDBACK_LOOP_START,
+      correlationId: "seed-launch",
+      at: FEEDBACK_LOOP_START,
+    });
+  }
+  const outboundTranscript = new FeedbackOutboundTranscriptService(
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  persistDispatchContextOnFake(repository);
+  const outboundLog = new FeedbackOutboundLogService(
+    repository as unknown as FeedbackOutboundLogRepository,
+  );
+  const outboundIntent = new FeedbackOutboundIntentService(
+    repository as unknown as FeedbackOutboxRepository,
+    outboundLog,
+  );
+  const summaries = noopSummaries();
+  const staffConversations = new PostEventFeedbackConversationService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    events as unknown as EventsRepository,
+    events as unknown as EventsService,
+    participants as unknown as ParticipantsRepository,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundIntent,
+    summaries as never,
+    {
+      findActiveLease: vi.fn().mockResolvedValue(undefined),
+    } as unknown as FeedbackConversationExecutionFenceRepository,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
+  );
+  const materializeWakeups = new FeedbackMaterializeWakeupService(
+    queuePort,
+    repository as unknown as FeedbackIngressRepository,
+  );
+  const ingress = new PostEventFeedbackIngressService(
+    materializeWakeups,
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+  );
+  // Materialization runs on its own queue in production, so it runs on its own
+  // processor here. Both are driven by the one fake queue — the harness models
+  // ordering and delay, not slot contention — but the class that handles a
+  // materialize job is the class that handles it in the deployment.
+  const pendingIngress = new PendingFeedbackIngressService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const stopIngress = new FeedbackStopService(
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundIntent,
+    summaries as never,
+    pendingIngress,
+  );
+  const inboundMessages = new FeedbackInboundMessageService(
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    outboundTranscript,
+    outboundIntent,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
+    pendingIngress,
+    stopIngress,
+  );
+  const closedIngress = new FeedbackClosedConversationIngressService(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    audit as unknown as AuditRepository,
+    pendingIngress,
+    stopIngress,
+  );
+  const observedOutbound = new FeedbackObservedOutboundService(
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    audit as unknown as AuditRepository,
+    pendingIngress,
+  );
+  const materializer = new PostEventFeedbackMaterializer(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    metrics,
+    pendingIngress,
+    inboundMessages,
+    closedIngress,
+    observedOutbound,
+  );
+  const materializationCoordinator =
+    new PostEventFeedbackMaterializationCoordinator(
+      repository as unknown as FeedbackIngressRepository,
+      materializer,
+      {
+        run: (_key: unknown, work: () => Promise<unknown>) => work(),
+      } as unknown as FeedbackMaterializationLimiter,
+    );
+  const ingressProcessor = new PostEventFeedbackIngressProcessor(
+    materializationCoordinator,
+  );
+  const extractionExecutionFence = {
+    renewWithin: async (_transaction: unknown, claim: unknown) => claim,
+    isCurrent: async () => true,
+    assertCurrent: async () => true,
+  } as never;
+  const guards = new FeedbackExtractionGuards(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackResultsRepository,
+    extractionExecutionFence,
+    repository as unknown as FeedbackCampaignRepository,
+    participants as unknown as ParticipantsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  const admission = new FeedbackExtractionAdmissionService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    extractionExecutionFence,
+  );
+  const modelContext = new FeedbackModelContextBuilder(
+    events as unknown as EventsService,
+    repository as unknown as FeedbackResultsRepository,
+    participants as unknown as ParticipantsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    guards,
+  );
+  const aiTurn = new FeedbackAiTurnAnalysis(
+    model as unknown as PostEventFeedbackExtractionModel,
+    metrics,
+  );
+  const participantReply = new FeedbackParticipantReplyPlanner(
+    model as unknown as PostEventFeedbackExtractionModel,
+    metrics,
+    guards,
+  );
+  const turns = new FeedbackExtractionTurnService(
+    modelContext,
+    aiTurn,
+    participantReply,
+  );
+  const resultsWriter = new FeedbackExtractionResultsWriter(
+    repository as unknown as FeedbackResultsRepository,
+    audit as unknown as AuditRepository,
+  );
+  const state = new FeedbackExtractionStateApplier(
+    repository as unknown as FeedbackResultsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const capacity = new FeedbackExtractionCapacityService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackResultsRepository,
+    extractionExecutionFence,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const commits = new FeedbackExtractionCommitService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    events as unknown as EventsService,
+    repository as unknown as FeedbackResultsRepository,
+    extractionExecutionFence,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    outboundTranscript,
+    outboundIntent,
+    resultsWriter,
+    state,
+  );
+  const extractor = new PostEventFeedbackExtractor(
+    admission,
+    turns,
+    commits,
+    capacity,
+    metrics,
+    alerts as FeedbackOperatorAlert,
+    summaries as never,
+  );
+  const inactivityService = new FeedbackConversationInactivityService(
+    config,
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundIntent,
+    summaries as never,
+  );
+  const sweepService = new PostEventFeedbackSweepService(
+    materializeWakeups,
+    config,
+    database as unknown as DatabaseService,
+    maintenanceCheckpoints as never,
+    repository as unknown as FeedbackIngressRepository,
+  );
+  const extractionFallback = new PostEventFeedbackExtractionFallback(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    events as unknown as EventsService,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundIntent,
+    alerts as FeedbackOperatorAlert,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
+  );
+  let executionEpoch = 0;
+  const executionClaims = {
+    tryClaim: async (
+      _transaction: unknown,
+      input: { conversationId: string; workRevision: number },
+    ) => {
+      const epoch = (executionEpoch += 1);
+      const conversation = conversations.documents.get(input.conversationId);
+      if (conversation) {
+        conversation.work = {
+          ...resolveFeedbackConversationWork(conversation.work),
+          executionEpoch: epoch,
+        };
+      }
+      conversations.setExecutionFence(input.conversationId, epoch);
+      return {
+        conversationId: input.conversationId,
+        workRevision: input.workRevision,
+        epoch,
+        token: "00000000-0000-4000-8000-000000000001",
+        leaseUntil: new Date(nowMs + 7 * 60_000),
+      };
+    },
+  };
+  const executionFence = {
+    isCurrent: async () => true,
+    startHeartbeat: () => ({ stop: async () => undefined }),
+    release: async () => true,
+  };
+  const reconciler = new FeedbackConversationReconcileService(
+    config,
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    participants as unknown as ParticipantsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    executionClaims as unknown as FeedbackConversationExecutionFenceRepository,
+    executionFence as unknown as FeedbackConversationExecutionFence,
+    extractor,
+    inactivityService,
+    conversationWakeups,
+  );
+  const maintenance = new PostEventFeedbackMaintenanceService(
+    sweepService,
+    conversationWakeups,
+    summaries,
+  );
+  const executeConversationJob = async (job: QueuedJob): Promise<void> => {
+    const data = job.data as {
+      schemaVersion: 2;
+      conversationId: string;
+      revision: number;
+      correlationId: string;
+    };
+
+    model.beginRun(data.conversationId);
+    try {
+      await reconciler.reconcile(data);
+    } catch (error) {
+      if (
+        error instanceof PostEventFeedbackConversationNotFoundError ||
+        error instanceof PostEventFeedbackCampaignNotFoundError
+      ) {
+        throw error;
+      }
+      const permanent =
+        error instanceof FeedbackExtractionGenerationError && !error.retryable;
+      const exhausted = job.attemptsMade + 1 >= job.attempts;
+      if (!permanent && !exhausted) {
+        throw error;
+      }
+      const cause =
+        error instanceof FeedbackExtractionGenerationError
+          ? error.failureCause
+          : "unknown";
+      if (isFeedbackProviderIncident(error)) {
+        await extractionFallback.park({
+          conversationId: data.conversationId,
+          correlationId: data.correlationId,
+          cause,
+        });
+      } else {
+        await extractionFallback.apply({
+          conversationId: data.conversationId,
+          correlationId: data.correlationId,
+          cause,
+        });
+        const settled = conversations.get(data.conversationId);
+        if (settled.work?.revision === data.revision) {
+          settled.work = { ...settled.work, nextActionAt: null };
+          settled.updatedAt = now();
+        }
+      }
+      throw new UnrecoverableError(
+        isFeedbackProviderIncident(error)
+          ? `Feedback extraction parked on the provider: ${cause}`
+          : `Feedback extraction failed permanently: ${cause}`,
+      );
+    }
+  };
+  const dispatchSettlement = new FeedbackDispatchSettlementService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  const dispatchPreparation = new FeedbackDispatchPreparationService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+  );
+  const dispatchRecovery = new FeedbackDispatchRecoveryService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    dispatchSettlement,
+  );
+  const dispatchAttempt = new FeedbackDispatchAttemptService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    outboundTranscript,
+    dispatchPreparation,
+    dispatchSettlement,
+    transport as FeedbackTransport,
+    { waitTurn: async () => ({ waitedMs: 0 }) },
+  );
+  const dispatcher = new MessageOutboxDispatcherService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    dispatchRecovery,
+    dispatchAttempt,
+  );
+
+  const maintenanceData = {
+    schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
+    correlationId: "maintenance",
+  } as const;
+  const repeatables: Repeatable[] = [
+    {
+      id: FEEDBACK_JOB_NAMES.maintenanceV2,
+      name: FEEDBACK_JOB_NAMES.maintenanceV2,
+      data: maintenanceData,
+      everyMs: FEEDBACK_SWEEP_EVERY_MS,
+      nextAt: FEEDBACK_LOOP_START.getTime() + FEEDBACK_SWEEP_EVERY_MS,
+    },
+  ];
+
+  const failures: {
+    job: string;
+    kind?: ModelFailure;
+    error: unknown;
+  }[] = [];
+  const inboundTexts: string[] = [];
+  let observedCounter = 0;
+
+  const runJob = async (job: QueuedJob): Promise<void> => {
+    for (;;) {
+      try {
+        if (job.name === FEEDBACK_JOB_NAMES.materializeV1) {
+          await ingressProcessor.process({
+            id: job.id,
+            name: job.name,
+            data: job.data,
+            attemptsMade: job.attemptsMade,
+            opts: { attempts: job.attempts },
+          } as unknown as Job<FeedbackJobData, void, FeedbackJobName>);
+        } else if (job.name === FEEDBACK_JOB_NAMES.reconcileConversationV2) {
+          await executeConversationJob(job);
+        } else if (job.name === FEEDBACK_JOB_NAMES.maintenanceV2) {
+          const correlationId = (job.data as { correlationId: string })
+            .correlationId;
+          await maintenance.run(correlationId);
+        } else {
+          throw new UnrecoverableError(
+            `Unsupported feedback loop job: ${job.name}`,
+          );
+        }
+        return;
+      } catch (error) {
+        job.attemptsMade += 1;
+        const kind =
+          job.name === FEEDBACK_JOB_NAMES.reconcileConversationV2
+            ? model.takeEmittedFailure()
+            : undefined;
+        failures.push({
+          job: job.name,
+          ...(kind ? { kind } : {}),
+          error,
+        });
+        if (
+          error instanceof UnrecoverableError ||
+          job.attemptsMade >= job.attempts
+        ) {
+          return;
+        }
+      }
+    }
+  };
+
+  const drainTo = async (target: number): Promise<void> => {
+    for (let guard = 0; guard < MAX_DRAIN_STEPS; guard += 1) {
+      const job = queue.earliestDue(target);
+      const repeat = repeatables
+        .filter((candidate) => candidate.nextAt <= target)
+        .sort((left, right) => left.nextAt - right.nextAt)[0];
+      const nextAt = Math.min(
+        job?.runAt ?? Number.POSITIVE_INFINITY,
+        repeat?.nextAt ?? Number.POSITIVE_INFINITY,
+      );
+
+      if (job && job.runAt <= nowMs && job.runAt <= nextAt) {
+        queue.take(job.id);
+        await runJob(job);
+        continue;
+      }
+      if (repeat && repeat.nextAt <= nowMs) {
+        const fired: QueuedJob = {
+          id: `${repeat.id}:${repeat.nextAt}`,
+          name: repeat.name,
+          data: repeat.data,
+          runAt: repeat.nextAt,
+          attempts: 1,
+          enqueueSeq: 0,
+          attemptsMade: 0,
+        };
+        repeat.nextAt += repeat.everyMs;
+        await runJob(fired);
+        continue;
+      }
+
+      // The production loop polls PostgreSQL directly. Drain every claimable
+      // batch before advancing the scenario clock so an outbox row written at
+      // 24h is sent at 24h, not whenever a later BullMQ wake-up happens to run.
+      const dispatched = await dispatcher.dispatchBatch(now());
+      if (dispatched.claimedCount > 0 || dispatched.quarantinedCount > 0) {
+        continue;
+      }
+      if (nextAt === Number.POSITIVE_INFINITY) {
+        break;
+      }
+      setNow(Math.max(nowMs, nextAt));
+    }
+    setNow(target);
+  };
+
+  const advance = async (after: ScenarioDuration): Promise<void> => {
+    await drainTo(nowMs + parseDuration(after));
+  };
+
+  const applyExternalAction = async (
+    action: FeedbackExternalAction,
+  ): Promise<void> => {
+    observedCounter += 1;
+    if (action.kind === "inbound") {
+      const bounded = boundObservedMessageText(action.text);
+      if (action.text !== null) {
+        inboundTexts.push(action.text.trim());
+      }
+      const from = action.from ?? phone;
+      await ingress.recordObservedMessage(
+        {
+          providerMessageId:
+            action.providerMessageId ?? `wa-in-${observedCounter}`,
+          chatJid: phoneE164ToChatJid(from),
+          direction: "inbound",
+          phoneE164: from,
+          text: bounded,
+          observedAt:
+            action.observedAt !== undefined
+              ? new Date(
+                  FEEDBACK_LOOP_START.getTime() +
+                    parseDuration(action.observedAt),
+                )
+              : now(),
+        },
+        `corr-${observedCounter}`,
+      );
+    } else if (action.kind === "observed_outbound") {
+      await ingress.recordObservedMessage(
+        {
+          providerMessageId:
+            action.providerMessageId ?? `wa-obs-${observedCounter}`,
+          chatJid: phoneE164ToChatJid(phone),
+          direction: "outbound",
+          phoneE164: phone,
+          text: boundObservedMessageText(action.text),
+          observedAt:
+            action.observedAt !== undefined
+              ? new Date(
+                  FEEDBACK_LOOP_START.getTime() +
+                    parseDuration(action.observedAt),
+                )
+              : now(),
+        },
+        `corr-${observedCounter}`,
+      );
+    } else if (action.kind === "staff") {
+      const requestId = `staff-action-${observedCounter}`;
+      if (action.action === "send") {
+        await staffConversations.sendStaffMessage(
+          CAMPAIGN_ID,
+          conversationId,
+          {
+            clientMessageId: `00000000-0000-4000-8000-${String(observedCounter).padStart(12, "0")}`,
+            text: action.text,
+          },
+          TEST_STAFF_ID,
+          requestId,
+        );
+      } else if (action.action === "take_over") {
+        await staffConversations.takeOver(
+          CAMPAIGN_ID,
+          conversationId,
+          TEST_STAFF_ID,
+          requestId,
+        );
+      } else if (action.action === "resume") {
+        await staffConversations.resumeBot(
+          CAMPAIGN_ID,
+          conversationId,
+          TEST_STAFF_ID,
+          requestId,
+        );
+      } else if (action.action === "close") {
+        await staffConversations.close(
+          CAMPAIGN_ID,
+          conversationId,
+          { reason: "other" },
+          TEST_STAFF_ID,
+          requestId,
+        );
+      }
+    } else if (action.kind === "campaign") {
+      const campaign = repository.campaigns.get(CAMPAIGN_ID);
+      if (!campaign) {
+        throw new Error("The harness campaign disappeared");
+      }
+      campaign.status = action.status;
+    } else if (action.kind === "consent") {
+      await database.transaction(async (transaction) => {
+        await participants.updateFeedbackOptIn(
+          transaction,
+          respondentId,
+          action.optedIn,
+        );
+      });
+    } else if (action.kind === "venue") {
+      if (action.action === "replace") {
+        events.replaceVenue(action.venue);
+      } else if (action.action === "disable") {
+        events.disableVenue();
+      } else {
+        events.clearVenue();
+      }
+    } else {
+      transport.outcome = action.outcome;
+    }
+  };
+
+  const apply = async (step: FeedbackStep): Promise<void> => {
+    if (step.kind === "during_model") {
+      const pause = model.pauseNext("extraction");
+      const running = advance(step.after);
+      try {
+        await Promise.race([
+          pause.started,
+          running.then(() => {
+            throw new Error(
+              "during_model expected an extraction provider call, but the worker settled without one",
+            );
+          }),
+        ]);
+      } catch (error) {
+        pause.release();
+        throw error;
+      }
+
+      let actionError: unknown;
+      try {
+        await applyExternalAction(step.action);
+      } catch (error) {
+        actionError = error;
+      }
+      pause.release();
+      await running;
+      if (actionError) {
+        throw actionError;
+      }
+      return;
+    }
+
+    await advance(step.after ?? 0);
+    if (step.kind !== "wait") {
+      await applyExternalAction(step);
+    }
+    await drainTo(nowMs);
+  };
+
+  const outcome = (): FeedbackLoopOutcome => {
+    const conversation = conversations.get(conversationId);
+    const outboxById = new Map(
+      repository.outbox.map((row) => [row.id, row] as const),
+    );
+    const kindOf = (row: FakeOutboxRow | undefined): FeedbackReceivedKind =>
+      row ? classifyOutbound(row, copy.closing, copy.declined) : "reply";
+
+    const received = transport.sent.map((sent) => ({
+      kind: kindOf(outboxById.get(sent.outboxId)),
+      text: sent.text,
+    }));
+    const receivedCount = Object.fromEntries(
+      FEEDBACK_RECEIVED_KINDS.map((kind) => [
+        kind,
+        received.filter((message) => message.kind === kind).length,
+      ]),
+    ) as Record<FeedbackReceivedKind, number>;
+
+    // Raw ingress is an audit/recovery boundary, not a human-facing inbox.
+    // Words count as retained only when the conversation transcript exposes
+    // them to an operator.
+    const humanVisibleParticipantText = new Set(
+      conversation.messages
+        .filter((message) => message.actor === "participant")
+        .map((message) => message.text),
+    );
+
+    return {
+      lifecycle: conversation.lifecycle.state,
+      closedBecause: conversation.lifecycle.reason,
+      control: conversation.control.mode,
+      optedIn:
+        participants.rows.get(respondentId)?.postEventFeedbackWhatsappOptIn ??
+        false,
+      answers: repository.answers
+        .filter((row) => row.conversationId === conversationId)
+        .map((row) => ({
+          question: row.questionKey as FeedbackAnswerQuestionKey,
+          about: row.subjectParticipantId
+            ? (nameById.get(row.subjectParticipantId) ?? "unknown person")
+            : null,
+          value: row.valueInt,
+        }))
+        .sort(
+          (left, right) =>
+            questionOrdinal(left.question, questionSet.answerQuestions) -
+              questionOrdinal(right.question, questionSet.answerQuestions) ||
+            (left.about ?? "").localeCompare(right.about ?? ""),
+        ),
+      notes: repository.notes
+        .filter((row) => row.conversationId === conversationId)
+        .map((row) => ({
+          type: row.noteType as FeedbackNoteType,
+          text: row.text,
+          about: row.subjectParticipantId
+            ? (nameById.get(row.subjectParticipantId) ?? "unknown person")
+            : null,
+          flagged: row.extractionMeta["flaggedForReview"] === true,
+        })),
+      needsAttention: conversation.needsAttention,
+      flaggedMessages: conversation.messages.flatMap((message) =>
+        message.attention
+          ? [
+              {
+                text: message.text,
+                categories: message.attention.categories,
+                action: message.attention.recommendedAction,
+              },
+            ]
+          : [],
+      ),
+      alerts: alerts.raised.map((alert) => ({
+        reason: alert.reason,
+        detail: [...(alert.detail ?? [])],
+      })),
+      received,
+      receivedCount,
+      transcript: conversation.messages.map((message) => ({
+        who: message.actor,
+        text: message.text,
+        kind:
+          message.actor === "participant"
+            ? null
+            : kindOf(
+                message.outboxId ? outboxById.get(message.outboxId) : undefined,
+              ),
+      })),
+      retainedParticipantText: inboundTexts.filter((text) =>
+        humanVisibleParticipantText.has(text),
+      ),
+      lostParticipantText: inboundTexts.filter(
+        (text) => !humanVisibleParticipantText.has(text),
+      ),
+    };
+  };
+
+  return {
+    conversationId,
+    model,
+    transport,
+    conversations,
+    repository,
+    participants,
+    events,
+    alerts,
+    audit,
+    extractor,
+    failures,
+    now,
+    advance,
+    apply,
+    async run(steps) {
+      for (const step of steps) {
+        await apply(step);
+      }
+    },
+    outcome,
+  };
+}
+
+function questionOrdinal(
+  key: FeedbackAnswerQuestionKey,
+  questions: readonly { readonly key: FeedbackAnswerQuestionKey }[],
+): number {
+  return questions.findIndex((question) => question.key === key);
+}
+
+/**
+ * What the participant experienced receiving, derived from the copy the
+ * application owns rather than from a dedupe key, so the classification
+ * survives a change of keying scheme.
+ */
+function classifyOutbound(
+  row: FakeOutboxRow,
+  closing: string,
+  declined: string,
+): FeedbackReceivedKind {
+  if (row.kind === "intro") {
+    return "intro";
+  }
+  if (row.kind === "reminder") {
+    return "reminder";
+  }
+  if (row.kind === "staff") {
+    return "staff";
+  }
+  if (row.kind === "system") {
+    // Both are application-owned `system` copy; the dedupe key is what says
+    // which, and it is stable in a way the wording is not.
+    return row.dedupeKey.startsWith("feedback-media-notice-")
+      ? "media_notice"
+      : "stop_ack";
+  }
+  const body = row.body.trim();
+  if (body === closing.trim()) {
+    return "closing";
+  }
+  // Shares the closing dedupe key, so the key cannot tell these apart and the
+  // copy is the only thing that can — the same reason this function reads copy
+  // rather than keys everywhere else.
+  if (body === declined.trim()) {
+    return "declined";
+  }
+  if (body === POST_EVENT_FEEDBACK_HANDOFF_REPLY) {
+    return "handoff";
+  }
+  if (body === POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY) {
+    return "hostility_stop";
+  }
+  if (body.startsWith(POST_EVENT_FEEDBACK_FALLBACK_ACK)) {
+    return "fallback";
+  }
+  return "reply";
+}
+
+// ── The runner ──────────────────────────────────────────────────────────────
+
+/**
+ * Scenarios are data rows and one runner, not dozens of hand-written functions.
+ * Known defects carry two explicit oracles: today's exact observable subset and
+ * the desired product subset. Arbitrary exceptions never count as a reproduced
+ * defect.
+ */
+export function runFeedbackScenarios(
+  suite: string,
+  scenarios: readonly FeedbackScenario[],
+  options: FeedbackScenarioSuiteOptions = {},
+): void {
+  describe(suite, () => {
+    beforeAll(() => {
+      Logger.overrideLogger(false);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    for (const scenario of scenarios) {
+      const title = scenario.defect
+        ? `${scenario.id} — ${scenario.title} [known defect: ${scenario.defect}]`
+        : `${scenario.id} — ${scenario.title}`;
+
+      it(title, async () => {
+        const questionSetVersion =
+          scenario.seed?.questionSetVersion ?? options.questionSetVersion;
+        const harness = await createFeedbackLoopHarness({
+          ...scenario.seed,
+          ...(questionSetVersion === undefined ? {} : { questionSetVersion }),
+        });
+        harness.model.script(
+          scenario.script ?? [],
+          scenario.allowUnscriptedExtractionCalls ?? false,
+        );
+        harness.model.scriptAttention(scenario.attention ?? []);
+        await harness.run(scenario.steps);
+
+        expect(
+          summarizeJobFailures(harness.failures),
+          "Background job failures differed from the scenario's explicit provider-failure contract",
+        ).toEqual(summarizeExpectedJobFailures(scenario.expectedJobFailures));
+        expect(
+          harness.model.unconsumedExtractionCalls,
+          scriptConsumptionMessage(
+            "extraction",
+            harness.model.unconsumedExtractionCalls,
+          ),
+        ).toEqual([]);
+        expect(
+          harness.model.unconsumedAttentionCalls,
+          scriptConsumptionMessage(
+            "attention",
+            harness.model.unconsumedAttentionCalls,
+          ),
+        ).toEqual([]);
+
+        const actual = harness.outcome();
+        if (scenario.defect) {
+          expect(
+            actual,
+            `Known defect "${scenario.defect}" changed its observable outcome; update or remove knownCurrent`,
+          ).toMatchObject(scenario.knownCurrent);
+          expect(
+            actual,
+            `Known defect "${scenario.defect}" now satisfies the desired outcome; remove defect and knownCurrent`,
+          ).not.toMatchObject(scenario.expect);
+        } else {
+          expect(actual).toMatchObject(scenario.expect);
+        }
+      });
+    }
+  });
+}
+
+interface SummarizedJobFailure {
+  readonly job: string;
+  readonly kind: ModelFailure | "unexpected";
+  readonly count: number;
+}
+
+function summarizeJobFailures(
+  failures: FeedbackLoopHarness["failures"],
+): SummarizedJobFailure[] {
+  return summarizeFailureEntries(
+    failures.map((failure) => ({
+      job: failure.job,
+      kind: failure.kind ?? ("unexpected" as const),
+      count: 1,
+    })),
+  );
+}
+
+function summarizeExpectedJobFailures(
+  failures: readonly ExpectedJobFailure[] | undefined,
+): SummarizedJobFailure[] {
+  return summarizeFailureEntries(failures ?? []);
+}
+
+function summarizeFailureEntries(
+  failures: readonly SummarizedJobFailure[],
+): SummarizedJobFailure[] {
+  const counts = new Map<string, SummarizedJobFailure>();
+  for (const failure of failures) {
+    const key = `${failure.job}\u0000${failure.kind}`;
+    const current = counts.get(key);
+    counts.set(key, {
+      job: failure.job,
+      kind: failure.kind,
+      count: (current?.count ?? 0) + failure.count,
+    });
+  }
+  return [...counts.values()].sort(
+    (left, right) =>
+      left.job.localeCompare(right.job) || left.kind.localeCompare(right.kind),
+  );
+}
+
+function scriptConsumptionMessage(
+  script: "extraction" | "attention",
+  calls: readonly number[],
+): string {
+  return calls.length === 0
+    ? `${script} script was consumed`
+    : `${script} script left ${calls.length} unconsumed turn(s): call ${calls.join(
+        ", ",
+      )}`;
+}
+
+function persistDispatchContextOnFake(
+  repository: FakeFeedbackRepository,
+): void {
+  const contexts = new Map<string, unknown>();
+  const insert = repository.insertOutboxIfAbsent.bind(repository);
+  repository.insertOutboxIfAbsent = async (transaction, input) => {
+    const result = await insert(transaction, input);
+    const context =
+      input && typeof input === "object" && "dispatchContext" in input
+        ? input.dispatchContext
+        : undefined;
+    if (result.inserted && context !== undefined) {
+      contexts.set(result.row.id, context);
+    }
+    const stored = contexts.get(result.row.id);
+    return stored === undefined
+      ? result
+      : { ...result, row: { ...result.row, dispatchContext: stored } };
+  };
+  const claim = repository.claimDispatchBatch.bind(repository);
+  repository.claimDispatchBatch = async (
+    transaction,
+    now,
+    limit,
+    leaseMs,
+    terminalOutboxIds,
+  ) => {
+    const claimed = await claim(
+      transaction,
+      now,
+      limit,
+      leaseMs,
+      terminalOutboxIds,
+    );
+    return claimed.map((row) => {
+      const stored = contexts.get(row.id);
+      return stored === undefined ? row : { ...row, dispatchContext: stored };
+    });
+  };
+}

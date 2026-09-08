@@ -26,7 +26,7 @@ import type { BurstPersona } from "./burst-scenario.js";
  * somebody who might say 3, and pretending otherwise would make every run flaky
  * — and a flaky failure is ignored within a fortnight. What these six are for is
  * the transcript; the harness therefore records what they produced instead of
- * grading it (see `buildExpectations` in `scripts/run-feedback-burst.mjs`).
+ * grading it (see `buildExpectations` in `harness/run-feedback-burst.mjs`).
  *
  * Current campaigns use the six-question V2 ladder. Each guest gets sixteen
  * turns: enough to answer every prompt plus ask a side question, react to a
