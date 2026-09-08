@@ -12,7 +12,7 @@
     "api:check": "node scripts/verify-generated-api.mjs",
     "api:generate": "turbo run api:generate --filter=@slopform/admin",
     "build": "turbo run build",
-    "check": "pnpm format:check && pnpm docs:check && pnpm api:check && pnpm typecheck && pnpm lint && pnpm test && pnpm test:scripts && pnpm test:topic-clustering && pnpm build",
+    "check": "pnpm format:check && pnpm docs:check && pnpm api:check && pnpm typecheck && pnpm lint && pnpm test && pnpm test:scripts && pnpm test:workshop-scenarios && pnpm test:topic-clustering && pnpm build",
     "db:check": "dotenv -e .env -- pnpm --filter @slopform/database db:check",
     "db:generate": "dotenv -e .env -- pnpm --filter @slopform/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @slopform/database db:migrate",
@@ -49,7 +49,9 @@
     "topic-clustering:setup": "node scripts/topic-clustering.mjs setup",
     "test:topic-clustering": "node scripts/topic-clustering.mjs test",
     "typecheck": "turbo run typecheck",
-    "test:feedback:postgres": "turbo run test:postgres --filter=@slopform/backend"
+    "test:feedback:postgres": "turbo run test:postgres --filter=@slopform/backend",
+    "workshop:build-fixtures": "turbo run workshop:compile --filter=@slopform/backend",
+    "test:workshop-scenarios": "turbo run workshop:check --filter=@slopform/backend"
   },
   "devDependencies": {
     "dotenv-cli": "11.0.0",

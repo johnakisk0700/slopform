@@ -127,6 +127,16 @@
       "dependsOn": ["build"],
       "env": ["FEEDBACK_POSTGRES_TEST_URL"],
       "outputs": []
+    },
+    "workshop:compile": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "outputs": ["../../fixtures/workshop-feedback/generated/**"]
+    },
+    "workshop:check": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "outputs": []
     }
   }
 }

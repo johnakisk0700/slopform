@@ -1,0 +1,512 @@
+{
+  "version": 1,
+  "batchId": "batch-06",
+  "generator": {
+    "model": "gpt-5.6-luna",
+    "reasoningEffort": "xhigh",
+    "promptVersion": 1
+  },
+  "conversations": [
+    {
+      "participantId": "p051",
+      "outcome": "complete",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Γεια σου! Είμαι ο αυτοματοποιημένος βοηθός ανατροφοδότησης για το εργαστήριο «Φωτογραφίζω με το κινητό». Πώς σου φάνηκε συνολικά;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Η βροχή μας έκοψε δέκα λεπτά στην αυλή και ένιωσα λίγο βιαστική. Ο tutor μου έδειξε συγκεκριμένα τη ρύθμιση φωτεινότητας και αυτό με βοήθησε πολύ.",
+          "offsetSeconds": 180
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Τι θα ήθελες να είχες προλάβει να δοκιμάσεις περισσότερο;",
+          "offsetSeconds": 360
+        },
+        {
+          "seq": 4,
+          "actor": "participant",
+          "text": "Μια ακόμη σύγκριση του ίδιου αντικειμένου στο φως και στη σκιά. Παρ’ όλα αυτά, η εξήγηση του tutor μου έμεινε.",
+          "offsetSeconds": 540
+        },
+        {
+          "seq": 5,
+          "actor": "bot",
+          "text": "Ευχαριστώ, κρατώ και την παρατήρηση για τον χρόνο και τη βοήθεια που πήρες.",
+          "offsetSeconds": 720
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Η βροχή αφαίρεσε δέκα λεπτά από τη δική της άσκηση φωτός και την έκανε να νιώσει βιαστική.",
+            "sourceSeqs": [2]
+          },
+          {
+            "kind": "general",
+            "meaning": "Η συγκεκριμένη εξήγηση του tutor για τη φωτεινότητα τη βοήθησε.",
+            "sourceSeqs": [2, 4]
+          },
+          {
+            "kind": "general",
+            "meaning": "Θα ήθελε μία ακόμη σύγκριση του ίδιου αντικειμένου σε φως και σκιά.",
+            "sourceSeqs": [4]
+          }
+        ],
+        "mustNotInfer": [
+          "Η ήπια διατύπωση δεν αναιρεί ότι προσωπικά ένιωσε βιασύνη.",
+          "Δεν τεκμηριώνεται ότι η βροχή περιόρισε με τον ίδιο τρόπο κάθε ομάδα."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p052",
+      "outcome": "complete",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Καλησπέρα! Είμαι ο αυτοματοποιημένος βοηθός για το εργαστήριο «Φωτογραφίζω με το κινητό». Τι σου έμεινε από τη σημερινή εμπειρία;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Sto demo eida ti diafora prin kai meta. Stin αυλή o tutor mou deixe pou na koitaksw gia ti fotinotita. Tora mporo na to dokimasw prin traviksw, oxi oti to exw mathei teleia.",
+          "offsetSeconds": 210
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Ποια μικρή αλλαγή δοκίμασες εσύ στο κινητό σου;",
+          "offsetSeconds": 390
+        },
+        {
+          "seq": 4,
+          "actor": "participant",
+          "text": "Na rythmizw ti fotinotita prin patisw to koumpi, koitontas to simeio pou mou edeikse. Akoma to mathainw.",
+          "offsetSeconds": 570
+        },
+        {
+          "seq": 5,
+          "actor": "bot",
+          "text": "Ευχαριστώ για το συγκεκριμένο παράδειγμα και τη σαφή σου διευκρίνιση.",
+          "offsetSeconds": 750
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Μπορεί τώρα να δοκιμάζει τη ρύθμιση φωτεινότητας πριν τη λήψη, χωρίς να ισχυρίζεται πλήρη mastery.",
+            "sourceSeqs": [2, 4]
+          },
+          {
+            "kind": "general",
+            "meaning": "Η σύντομη βοήθεια του tutor τού έδειξε πού να κοιτάξει για τον έλεγχο φωτεινότητας.",
+            "sourceSeqs": [2, 4]
+          }
+        ],
+        "mustNotInfer": [
+          "Δηλώνει ότι ακόμη μαθαίνει και δεν τεκμηριώνει πλήρη κατάκτηση της ρύθμισης.",
+          "Η εμπειρία του δεν τεκμηριώνει ότι ο ίδιος έλεγχος βρίσκεται στο ίδιο σημείο σε όλα τα Android κινητά."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p053",
+      "outcome": "complete",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Γεια σου! Είμαι ο αυτοματοποιημένος βοηθός ανατροφοδότησης του εργαστηρίου «Φωτογραφίζω με το κινητό». Πώς ήταν η εμπειρία σου;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Στην αυλή η βροχή μας έκοψε δέκα λεπτά. Νομίζω ότι θα βοηθούσε περισσότερος χρόνος, αλλά δεν ξέρω αν θα τελείωνα τη δοκιμή μου.",
+          "offsetSeconds": 180
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Τι κατάφερες τελικά να κρατήσεις από τις ασκήσεις;",
+          "offsetSeconds": 360
+        },
+        {
+          "seq": 4,
+          "actor": "participant",
+          "text": "Η σύνθεση ήταν εντάξει. Έκανα τις λήψεις μου, απλώς δεν ξέρω αν θα προλάβαινα άλλη μία.",
+          "offsetSeconds": 540
+        },
+        {
+          "seq": 5,
+          "actor": "bot",
+          "text": "Ευχαριστώ για την ειλικρινή και προσεκτική απάντηση.",
+          "offsetSeconds": 720
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Η απώλεια δέκα λεπτών στην αυλή τής δημιούργησε την αίσθηση ότι περισσότερος χρόνος θα βοηθούσε.",
+            "sourceSeqs": [2]
+          },
+          {
+            "kind": "general",
+            "meaning": "Έκανε λήψεις και βρήκε τη σύνθεση εντάξει, χωρίς να ξέρει αν θα προλάβαινε άλλη μία.",
+            "sourceSeqs": [4]
+          }
+        ],
+        "mustNotInfer": [
+          "Δεν ξέρει αν θα ολοκλήρωνε τη δοκιμή με περισσότερο χρόνο, άρα δεν τεκμηριώνεται βέβαιο αποτέλεσμα.",
+          "Δεν προκύπτει ότι η σύνθεση ήταν ίδια για κάθε συμμετέχοντα."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p054",
+      "outcome": "complete",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Καλησπέρα! Είμαι ο αυτοματοποιημένος βοηθός για το εργαστήριο «Φωτογραφίζω με το κινητό». Τι ξεχώρισες από τη σημερινή εμπειρία;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Με τον partner συγκρίναμε δύο φωτογραφίες του ίδιου αντικειμένου και με βοήθησε να δω τη διαφορά στο κάδρο.",
+          "offsetSeconds": 180
+        },
+        {
+          "seq": 3,
+          "actor": "participant",
+          "text": "Άσχετο, ψάχνω ακόμα μια ομπρέλα που έχασα σήμερα.",
+          "offsetSeconds": 240
+        },
+        {
+          "seq": 4,
+          "actor": "bot",
+          "text": "Πώς σε βοήθησε τελικά η σύγκριση των δύο φωτογραφιών;",
+          "offsetSeconds": 420
+        },
+        {
+          "seq": 5,
+          "actor": "participant",
+          "text": "Με έκανε να μετακινήσω λίγο το αντικείμενο μέσα στο κάδρο. Η άσκηση σύνθεσης ήταν χρήσιμη.",
+          "offsetSeconds": 600
+        },
+        {
+          "seq": 6,
+          "actor": "bot",
+          "text": "Ευχαριστώ, κρατώ το συγκεκριμένο παράδειγμα από τη σύνθεση.",
+          "offsetSeconds": 780
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Η σύγκριση δύο φωτογραφιών με συνεργάτη τον βοήθησε να δει διαφορά στο κάδρο και να μετακινήσει το αντικείμενο.",
+            "sourceSeqs": [2, 5]
+          },
+          {
+            "kind": "general",
+            "meaning": "Βρήκε χρήσιμη την άσκηση σύνθεσης.",
+            "sourceSeqs": [5]
+          }
+        ],
+        "mustNotInfer": [
+          "Η αναφορά στην χαμένη ομπρέλα είναι προσωπικό άσχετο περιστατικό και δεν αφορά το εργαστήριο.",
+          "Δεν τεκμηριώνεται ότι όλοι οι συμμετέχοντες αξιολόγησαν θετικά τη σύγκριση."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p055",
+      "outcome": "complete",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Γεια σου! Είμαι ο αυτοματοποιημένος βοηθός ανατροφοδότησης του εργαστηρίου «Φωτογραφίζω με το κινητό». Πώς σου φάνηκε συνολικά;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Χάρηκα πολύ όταν το tip του tutor έκανε το πίσω αντικείμενο να μη βγαίνει μαύρο. Θα ήθελα άλλη μία δοκιμή μετά τη βροχή, αλλά για πρώτη φορά το είδα να δουλεύει.",
+          "offsetSeconds": 210
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Ποια στιγμή σου έδωσε περισσότερο την αίσθηση ότι το κατάφερες;",
+          "offsetSeconds": 390
+        },
+        {
+          "seq": 4,
+          "actor": "participant",
+          "text": "Όταν ρύθμισα τη φωτεινότητα και είδα λεπτομέρεια εκεί που πριν ήταν σκιά. Ήταν μικρό, αλλά χάρηκα.",
+          "offsetSeconds": 570
+        },
+        {
+          "seq": 5,
+          "actor": "bot",
+          "text": "Ευχαριστώ για το συγκεκριμένο παράδειγμα.",
+          "offsetSeconds": 750
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Η βοήθεια του tutor και η ρύθμιση φωτεινότητας έκαναν ένα πίσω αντικείμενο πιο ορατό στη δική της φωτογραφία.",
+            "sourceSeqs": [2, 4]
+          },
+          {
+            "kind": "general",
+            "meaning": "Θα ήθελε άλλη μία δοκιμή μετά τη διακοπή λόγω βροχής, παρότι χάρηκε με το πρώτο αποτέλεσμα.",
+            "sourceSeqs": [2]
+          }
+        ],
+        "mustNotInfer": [
+          "Η μικρή επιτυχία αφορά τη δική της φωτογραφία και δεν τεκμηριώνει ίδιο αποτέλεσμα για όλους.",
+          "Δεν προκύπτει ότι η άσκηση ήταν αποτυχημένη επειδή ήθελε άλλη μία δοκιμή."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p056",
+      "outcome": "partial",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Καλησπέρα! Είμαι ο αυτοματοποιημένος βοηθός για το εργαστήριο «Φωτογραφίζω με το κινητό». Τι σου έμεινε από τη σημερινή δοκιμή;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Kalo itan. Sti sintheti metakinithika ligo kai efyge mia karekla apo to kadro. Gia to fos prolava ligo...",
+          "offsetSeconds": 240
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Τι πρόλαβες να κάνεις με το φως;",
+          "offsetSeconds": 420
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Μετακινήθηκε λίγο και απομάκρυνε μια καρέκλα από το κάδρο, οπότε βελτίωσε τη δική του σύνθεση.",
+            "sourceSeqs": [2]
+          }
+        ],
+        "mustNotInfer": [
+          "Το ανολοκλήρωτο σχόλιο για το φως δεν αποκαλύπτει τι ακριβώς πρόλαβε να κάνει.",
+          "Δεν υπάρχει απάντηση στο follow-up για την άσκηση φωτός."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p057",
+      "outcome": "partial",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Γεια σου! Είμαι ο αυτοματοποιημένος βοηθός ανατροφοδότησης του εργαστηρίου «Φωτογραφίζω με το κινητό». Πώς ήταν η εμπειρία σου;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "To prin/meta sti fotinotita mou egine pio ksekatharo. Meta i vrohi mas ekopse 10 lepta kai tha ithela ligo akoma xrono.",
+          "offsetSeconds": 180
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Ποιο σημείο θα ήθελες να δοκιμάσεις με τον επιπλέον χρόνο;",
+          "offsetSeconds": 360
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Η σύγκριση πριν και μετά έκανε πιο ξεκάθαρη τη φωτεινότητα για εκείνη.",
+            "sourceSeqs": [2]
+          },
+          {
+            "kind": "general",
+            "meaning": "Η διακοπή λόγω βροχής αφαίρεσε δέκα λεπτά και θα ήθελε λίγο επιπλέον χρόνο.",
+            "sourceSeqs": [2]
+          }
+        ],
+        "mustNotInfer": [
+          "Δεν γνωρίζουμε ποιο συγκεκριμένο σημείο θα δοκίμαζε με περισσότερο χρόνο, επειδή δεν απάντησε.",
+          "Η αναφορά της αφορά τη δική της rotation και δεν τεκμηριώνει επίδραση σε άλλες ομάδες."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p058",
+      "outcome": "partial",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Καλησπέρα! Είμαι ο αυτοματοποιημένος βοηθός για το εργαστήριο «Φωτογραφίζω με το κινητό». Τι ξεχώρισες από τη σημερινή εμπειρία;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Stin arxi eipa oti to editing itan axristo gia mena.",
+          "offsetSeconds": 180
+        },
+        {
+          "seq": 3,
+          "actor": "participant",
+          "text": "Na to diorthosw: itan basic gia mena, oxi axristo genika. I sintheti omos mou arese.",
+          "offsetSeconds": 240
+        },
+        {
+          "seq": 4,
+          "actor": "bot",
+          "text": "Τι θα έκανε το μέρος της επεξεργασίας πιο χρήσιμο για σένα;",
+          "offsetSeconds": 420
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Διευκρίνισε ότι το editing ήταν βασικό για τη δική του εμπειρία, ενώ του άρεσε η άσκηση σύνθεσης.",
+            "sourceSeqs": [3]
+          }
+        ],
+        "mustNotInfer": [
+          "Η αρχική λέξη «άχρηστο» αντικαταστάθηκε από τη διευκρίνιση ότι το περιεχόμενο ήταν βασικό για εκείνον, όχι άχρηστο για όλους.",
+          "Δεν γνωρίζουμε τι αλλαγή θα έκανε την επεξεργασία πιο χρήσιμη για εκείνον, επειδή το follow-up έμεινε αναπάντητο."
+        ],
+        "corrections": [
+          {
+            "supersededSeqs": [2],
+            "replacementSeqs": [3],
+            "meaning": "Η απόλυτη αρχική διατύπωση διορθώθηκε: το editing ήταν βασικό για τον ίδιο, όχι άχρηστο γενικά."
+          }
+        ]
+      }
+    },
+    {
+      "participantId": "p059",
+      "outcome": "complete",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Γεια σου! Είμαι ο αυτοματοποιημένος βοηθός ανατροφοδότησης για το εργαστήριο «Φωτογραφίζω με το κινητό». Πώς σου φάνηκε συνολικά;",
+          "offsetSeconds": 0
+        },
+        {
+          "seq": 2,
+          "actor": "participant",
+          "text": "Η βροχή μας έκοψε δέκα λεπτά από την άσκηση φωτός και ήταν σπαστικό, γαμώτο, γιατί ήθελα άλλη μία προσπάθεια. Ο tutor όμως μου εξήγησε γρήγορα τη φωτεινότητα.",
+          "offsetSeconds": 210
+        },
+        {
+          "seq": 3,
+          "actor": "bot",
+          "text": "Τι κράτησες τελικά από τη βοήθεια του tutor;",
+          "offsetSeconds": 390
+        },
+        {
+          "seq": 4,
+          "actor": "participant",
+          "text": "Ότι μπορώ να αλλάξω τη φωτεινότητα πριν τραβήξω. Θα ήθελα βέβαια να είχα προλάβει άλλη μία λήψη.",
+          "offsetSeconds": 570
+        },
+        {
+          "seq": 5,
+          "actor": "bot",
+          "text": "Ευχαριστώ για την καθαρή περιγραφή.",
+          "offsetSeconds": 750
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [
+          {
+            "kind": "general",
+            "meaning": "Η βροχή αφαίρεσε δέκα λεπτά από τη δική της άσκηση φωτός και το θεώρησε ενοχλητικό επειδή ήθελε άλλη προσπάθεια.",
+            "sourceSeqs": [2, 4]
+          },
+          {
+            "kind": "general",
+            "meaning": "Η σύντομη εξήγηση του tutor τής έδειξε ότι μπορεί να αλλάξει τη φωτεινότητα πριν από τη λήψη.",
+            "sourceSeqs": [2, 4]
+          }
+        ],
+        "mustNotInfer": [
+          "Η έντονη γλώσσα αφορά την απώλεια χρόνου και δεν είναι δήλωση αποχώρησης ή άρνηση συνέχισης.",
+          "Δεν τεκμηριώνεται ότι η βροχή ή ο χρόνος επηρέασαν κάθε ομάδα με τον ίδιο τρόπο."
+        ],
+        "corrections": []
+      }
+    },
+    {
+      "participantId": "p060",
+      "outcome": "silent",
+      "messages": [
+        {
+          "seq": 1,
+          "actor": "bot",
+          "text": "Καλησπέρα! Είμαι ο αυτοματοποιημένος βοηθός ανατροφοδότησης για το εργαστήριο «Φωτογραφίζω με το κινητό». Πώς ήταν η εμπειρία σου;",
+          "offsetSeconds": 0
+        }
+      ],
+      "expectations": {
+        "reviewStatus": "draft",
+        "findings": [],
+        "mustNotInfer": [
+          "Δεν υπάρχει participant testimony, άρα δεν τεκμηριώνεται ούτε θετική ούτε αρνητική εμπειρία."
+        ],
+        "corrections": []
+      }
+    }
+  ]
+}

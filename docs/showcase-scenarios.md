@@ -1,8 +1,30 @@
 # Event feedback showcase and test scenarios
 
-Planning checkpoint: **2026-09-08**. Product direction and proposed dataset,
-not an implemented questionnaire, generated corpus or measured response rate.
+Checkpoint: **2026-09-08**. Product direction and synthetic fixture authoring,
+not an implemented workshop questionnaire or measured response rate.
 See [the portfolio plan](portfolio-plan.md) for current implementation scope.
+
+## Fixture authoring implementation
+
+The [workshop fixture package](../fixtures/workshop-feedback/README.md) owns the
+event brief, 55 reusable character archetypes, 100 participant profiles, the Luna
+generation prompt and ten dialogue batches. Two native Astra agents authored and
+cross-checked event facts and profiles. Native Luna agents use xhigh; root reviews
+the first ten conversations as a pilot before accepting further batches.
+
+`pnpm workshop:build-fixtures` projects the source dialogues into deterministic
+JSON message records matching the existing PostgreSQL stored-message schema.
+Expected findings remain in a separate artifact with source references.
+`pnpm test:workshop-scenarios` checks the corpus and generated-file drift; it runs
+inside `pnpm check` and makes no provider or database calls. Turbo owns the
+backend build dependency and generated artifact outputs.
+
+These are seed-source artifacts, with `runtimeImportReady: false`. No imported
+campaign, successful extraction, delivery evidence or finished analysis is
+claimed. The approved workshop questionnaire and an isolated replay/seed adapter
+are still required before runtime ingestion. Author-drafted expectations need
+semantic review and actual extraction comparison; the scenario task remains in
+progress until those later acceptance criteria are met.
 
 ## One showcase story
 
@@ -86,7 +108,7 @@ no testimony; a closed campaign need not contain 100 completed questionnaires.
 
 1. Confirm the question contract and replay/import shape against existing
    simulator tooling. Identify any required implementation separately.
-2. Review a small pilot of about eight conversations before bulk generation.
+2. Review a small pilot of ten conversations before bulk generation.
 3. Assign roughly ten batches of ten attendee profiles to Luna. Each batch mixes
    outcomes and themes; do not give one agent all pacing complaints. Start with at
    most three concurrent agents and a fixed output/call budget.
@@ -122,7 +144,7 @@ earlier testimony, and what must not be inferred. Agent-written expectations are
 drafts until reviewed. Compare meaning and evidence, not exact summary wording or
 unstable cluster IDs. Count people separately from notes and messages.
 
-Use the approved pilot as a focused regression set; keep additional participants
+Use the reviewed pilot as a focused regression set; keep additional participants
 for the campaign showcase. Save actual extraction results and inspect omissions,
 unsupported findings and lost qualifiers before running clustering. Generation
 and provider-backed replay are explicit bounded runs, not paid CI requirements.

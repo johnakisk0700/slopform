@@ -77,7 +77,7 @@ do not edit the old one. Template:
 - Root `package.json` scripts are the public command surface; ordering, cache
   inputs and real outputs belong in `turbo.json`.
 - `pnpm check` runs `format:check`, `docs:check`, `api:check`, `typecheck`,
-  `lint`, `test`, `test:scripts`, `test:topic-clustering`, `build`. Run
+  `lint`, `test`, `test:scripts`, `test:workshop-scenarios`, `test:topic-clustering`, `build`. Run
   `pnpm topic-clustering:setup` once with Python 3.11/3.12 before the first check.
   `api:check` is **not** cheap (full
   backend build + orval); it sits third so contract drift fails before later

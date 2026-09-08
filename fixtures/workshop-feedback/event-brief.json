@@ -1,0 +1,270 @@
+{
+  "scenarioId": "workshop-smartphone-photography-100-v1",
+  "synthetic": true,
+  "status": "authored-fixture-not-runtime-questionnaire",
+  "title": "Φωτογραφίζω με το κινητό",
+  "event": {
+    "date": "2026-09-12",
+    "timezone": "Europe/Athens",
+    "start": "14:00",
+    "end": "18:00",
+    "feedbackInvitationTime": "18:30",
+    "city": "Θεσσαλονίκη",
+    "venue": "Εργαστήρι Ακτίδα — επινοημένος χώρος χωρίς πραγματική διεύθυνση",
+    "spaces": ["main_hall", "courtyard", "covered_side_gallery"],
+    "adultAttendeeCount": 100,
+    "practiceGroupCount": 10,
+    "peoplePerGroup": 10,
+    "groupIds": [
+      "G01",
+      "G02",
+      "G03",
+      "G04",
+      "G05",
+      "G06",
+      "G07",
+      "G08",
+      "G09",
+      "G10"
+    ],
+    "staff": "One lead instructor and three practice tutors; all fictional and unnamed.",
+    "equipment": "Participants use their own smartphones and built-in camera/editing tools. No paid app, account creation or public image upload is required."
+  },
+  "schedule": [
+    {
+      "start": "14:00",
+      "end": "14:15",
+      "activity": "Check-in and practice group assignment",
+      "space": "main_hall"
+    },
+    {
+      "start": "14:15",
+      "end": "15:00",
+      "activity": "Live demonstration: focus, exposure adjustment and framing",
+      "space": "main_hall"
+    },
+    {
+      "start": "15:00",
+      "end": "15:35",
+      "activity": "Rotation 1: G01–G05 light practice in courtyard; G06–G10 composition practice in hall",
+      "space": "courtyard/main_hall"
+    },
+    {
+      "start": "15:35",
+      "end": "15:45",
+      "activity": "Groups switch practice spaces",
+      "space": "courtyard/main_hall"
+    },
+    {
+      "start": "15:45",
+      "end": "16:20",
+      "activity": "Rotation 2: G06–G10 light practice in courtyard; G01–G05 composition practice in hall",
+      "space": "courtyard/main_hall"
+    },
+    {
+      "start": "16:20",
+      "end": "16:35",
+      "activity": "Break",
+      "space": "main_hall"
+    },
+    {
+      "start": "16:35",
+      "end": "17:10",
+      "activity": "Built-in editing: crop, straighten, brightness and a before/after comparison",
+      "space": "main_hall"
+    },
+    {
+      "start": "17:10",
+      "end": "17:45",
+      "activity": "Voluntary image critique; twelve images discussed",
+      "space": "main_hall"
+    },
+    {
+      "start": "17:45",
+      "end": "18:00",
+      "activity": "Recap and announcement of next-day handout",
+      "space": "main_hall"
+    }
+  ],
+  "exercises": [
+    {
+      "id": "light",
+      "task": "Photograph the same tabletop object in direct and shaded daylight; adjust exposure and compare the pair.",
+      "location": "courtyard",
+      "constraint": "No portrait or identifiable-person photography is required."
+    },
+    {
+      "id": "composition",
+      "task": "Make three frames of a simple still life from different positions, then compare subject placement with a partner.",
+      "location": "main_hall",
+      "constraint": "All ten people remain in their assigned practice group; each works with a partner or small subset."
+    },
+    {
+      "id": "editing",
+      "task": "Crop, straighten and adjust brightness on one of your own practice photos using the phone's built-in editor.",
+      "location": "main_hall",
+      "constraint": "This is introductory editing, with no advanced retouching segment."
+    }
+  ],
+  "observations": [
+    {
+      "id": "exposure_demo_clear",
+      "occurrence": "The lead instructor showed the same scene before and after changing exposure and repeated the adjustment once.",
+      "eligibleWitnesses": "Attendees present during the opening demonstration.",
+      "possibleImpressions": [
+        "The example finally made exposure understandable.",
+        "The demonstration repeated something already familiar.",
+        "Watching was easier than finding the control later."
+      ]
+    },
+    {
+      "id": "varied_levels",
+      "occurrence": "The workshop admitted adults without a skill prerequisite and used mixed-experience practice groups; no beginner/advanced tracks were offered.",
+      "eligibleWitnesses": "Participants know their own skill and the exchanges they personally witnessed, not the skill distribution of all 100 people.",
+      "possibleImpressions": [
+        "The beginner pace suited me.",
+        "Some steps moved too quickly for me.",
+        "I wanted a separate advanced group."
+      ]
+    },
+    {
+      "id": "sound_back_rows",
+      "occurrence": "The main microphone briefly cut out twice between 14:25 and 14:35; the instructor continued speaking while it was restored.",
+      "eligibleWitnesses": "Attendees present then; missed-word complaints apply particularly to rear seats. Front seats may have heard adequately.",
+      "possibleImpressions": [
+        "I missed part of the explanation at the back.",
+        "It was a brief interruption without much impact."
+      ]
+    },
+    {
+      "id": "screen_side_glare",
+      "occurrence": "Daylight from the right-hand windows reduced projected-screen contrast for right-side seats during the opening demonstration.",
+      "eligibleWitnesses": "Right-side demonstration attendees; an assigned move or firsthand observation is needed for anyone elsewhere to describe the view.",
+      "possibleImpressions": [
+        "Small menu labels were hard to see.",
+        "The spoken explanation was enough despite the glare."
+      ]
+    },
+    {
+      "id": "light_practice_rushed",
+      "occurrence": "Passing rain paused the second courtyard rotation from 15:55 to 16:05. G06–G10 sheltered in the covered side gallery; the session still ended at 16:20, leaving 25 rather than 35 usable practice minutes. The indoor rotation continued.",
+      "eligibleWitnesses": "G06–G10 members present for the second rotation experienced this directly. Other groups cannot claim their own exercise lost those ten minutes.",
+      "possibleImpressions": [
+        "I needed more time to compare my light shots.",
+        "I finished the pair despite the shorter session.",
+        "The move to shelter was handled calmly."
+      ]
+    },
+    {
+      "id": "indoor_composition_useful",
+      "occurrence": "Each group had a 35-minute indoor composition slot with movable still-life objects and a partner comparison.",
+      "eligibleWitnesses": "People present for their own indoor rotation.",
+      "possibleImpressions": [
+        "Changing position improved my framing.",
+        "The still-life setup felt repetitive.",
+        "I preferred the indoor exercise to the light exercise."
+      ]
+    },
+    {
+      "id": "helpful_tutor",
+      "occurrence": "A practice tutor visited G01 and G03 during the first courtyard rotation and G06 and G08 during the second, giving brief individual exposure-control help to participants who asked.",
+      "eligibleWitnesses": "Members of those groups present for the visit; only profiles assigned direct help may claim they received it.",
+      "possibleImpressions": [
+        "The personal explanation solved my problem.",
+        "The visit helped a partner more than me.",
+        "The help was useful but brief."
+      ]
+    },
+    {
+      "id": "tutor_wait",
+      "occurrence": "Participants in G04 and G09 who requested courtyard help waited while the tutors were with other groups; some continued with a partner before a tutor became available.",
+      "eligibleWitnesses": "G04/G09 participants assigned a help request or a witnessed wait in their profiles.",
+      "possibleImpressions": [
+        "The wait used up practice time.",
+        "A partner helped while I waited.",
+        "The delay was manageable."
+      ]
+    },
+    {
+      "id": "app_menu_mismatch",
+      "occurrence": "The demonstration phone was an iPhone. Some Android camera apps placed exposure controls behind different icons or gestures; the basic exercise still worked on those phones.",
+      "eligibleWitnesses": "Assigned Android participants who looked for the controls, or profiles explicitly witnessing a partner's difficulty. This does not affect every Android phone.",
+      "possibleImpressions": [
+        "I lost time finding the matching menu.",
+        "A short Android example would have helped.",
+        "I found the equivalent control without trouble."
+      ]
+    },
+    {
+      "id": "sharing_queue",
+      "occurrence": "More than twelve images were volunteered for the closing critique, but time allowed discussion of twelve. There was no promise that every attendee's image would be reviewed.",
+      "eligibleWitnesses": "Attendees present from 17:10; only assigned submitters may say their own image was not reached.",
+      "possibleImpressions": [
+        "I wanted feedback on my own photo.",
+        "Listening to other critiques was useful.",
+        "The final section felt long."
+      ]
+    },
+    {
+      "id": "materials_next_day",
+      "occurrence": "At the 17:45 recap the organizer promised a short recap handout by 12:00 the next day. At the 18:30 feedback invitation it had not been sent and was not overdue.",
+      "eligibleWitnesses": "Attendees present for the recap, or profiles explicitly told about it by someone else.",
+      "possibleImpressions": [
+        "I look forward to the handout.",
+        "I would have preferred a sheet during practice.",
+        "I am unsure where it will arrive."
+      ]
+    },
+    {
+      "id": "access_standing_fatigue",
+      "occurrence": "Courtyard practice was primarily standing around worktables. Chairs were available inside the hall, with no chair placed at each courtyard table.",
+      "eligibleWitnesses": "People who attended courtyard practice; only assigned personal testimony supports fatigue or discomfort.",
+      "possibleImpressions": [
+        "Standing became tiring for me.",
+        "I wanted somewhere to sit during the outdoor task.",
+        "The standing arrangement was fine for me."
+      ]
+    },
+    {
+      "id": "friendly_peer_exchange",
+      "occurrence": "Exercises included optional partner comparison within each ten-person group; strangers sometimes exchanged tips while practicing.",
+      "eligibleWitnesses": "Only the exchanges assigned to an individual profile; no participant can infer that every group was friendly.",
+      "possibleImpressions": [
+        "A partner's tip was useful.",
+        "Comparing shots made the exercise enjoyable.",
+        "I preferred to work quietly."
+      ]
+    },
+    {
+      "id": "editing_too_basic",
+      "occurrence": "The 35-minute editing segment covered crop, straighten and brightness with one before/after comparison.",
+      "eligibleWitnesses": "Attendees present for that segment.",
+      "possibleImpressions": [
+        "The editing was too basic for my experience.",
+        "Those basic controls were exactly what I needed.",
+        "I would rather have spent some of this time practicing light."
+      ]
+    }
+  ],
+  "participantKnowledgeRules": [
+    "The event brief is author knowledge, not a participant's script. A profile narrows which facts a person experienced and which opinions they hold.",
+    "An observation ID is an authoring reference, not an extraction category, required mention or finding.",
+    "Do not give a participant knowledge of other groups, missed sessions, staff intentions or other people's feelings without explicit hearsay in the profile.",
+    "Keep hearsay and uncertainty qualified. A subjective complaint is not proof of an event-wide failure.",
+    "A witness can be neutral about an incident; an assigned fact does not require testimony about it.",
+    "Silent participants provide no testimony. Partial conversations leave unanswered matters unknown.",
+    "Do not add real identities, phone numbers, addresses, accounts or links. All people and event details are fictional."
+  ],
+  "proposedInterviewContract": {
+    "purpose": "Gather a short overall impression and, only if useful, clarify one relevant point in the participant's own feedback.",
+    "status": "Authored transcript fixture contract only; does not implement or adapt the application's existing V2 questionnaire.",
+    "opening": "Γεια σου! Πώς σου φάνηκε συνολικά το σημερινό εργαστήριο φωτογραφίας με κινητό; Αν θέλεις, πες μας με λίγα λόγια.",
+    "followUpLimit": 1,
+    "followUpRule": "Ask at most one short, open, non-leading clarification when the answer leaves useful context missing. Reflect only what the person actually said; do not supply incident names or suspected causes. Skip the follow-up when the feedback is already clear, the participant declines, or the participant stops responding.",
+    "exampleClarification": "Σε ποιο μέρος του εργαστηρίου αναφέρεσαι;",
+    "completion": "Thank the participant briefly when they finish; do not require ratings, attendance intentions or answers about every exercise.",
+    "declineAndStop": "Respect any explicit refusal or STOP immediately. A brief acknowledgment is allowed; no further question, persuasion or reminder.",
+    "silence": "An unanswered opening has no participant messages. An unanswered follow-up remains partial, without an invented reply or claim of completion.",
+    "scheduling": "Conversation timestamps, if used, begin at or after the fictional 18:30 invitation. Next-day delivery failure cannot be inferred from same-evening testimony."
+  }
+}

@@ -19,7 +19,9 @@
     "coverage": "vitest run --coverage",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:postgres": "node ../../scripts/test-feedback-postgres.mjs"
+    "test:postgres": "node ../../scripts/test-feedback-postgres.mjs",
+    "workshop:compile": "node ../../scripts/workshop-scenarios.mjs build",
+    "workshop:check": "node ../../scripts/workshop-scenarios.mjs check"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.18",

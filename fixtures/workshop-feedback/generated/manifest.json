@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "questionnaireContract": "workshop-feedback-draft-v1",
+  "runtimeImportReady": false,
+  "eventId": "d814f551-7be5-8f8b-b176-6e5009801aef",
+  "campaignId": "4f67155d-4491-80da-bf61-27782b147c9f",
+  "participantCount": 100,
+  "messageCount": 395,
+  "outcomes": { "complete": 55, "partial": 30, "declined": 5, "silent": 10 },
+  "sources": [
+    {
+      "file": "batches/batch-01.json",
+      "sha256": "1b15d1ccb982b05743ef761934dba3c00d3e05487320a88ba93d394d666c7169",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-02.json",
+      "sha256": "6a795cc0e8bb24ac0e2dc82dfab11c81a29710d0cb40ca68c19450ab1b43455f",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-03.json",
+      "sha256": "4f2cb254015f61e5529bcf9e36e3bb014df0236c6b5858b8267a1a971fcdd2d7",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-04.json",
+      "sha256": "bdb4104ef8461db9ed4043e9ccc3fa9a0c0cd2a8af17d04c7b06b2f694fa6727",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-05.json",
+      "sha256": "1ce3186cf038d47688903c0df4ba697cbac0138ab7cbac7e701565155b716040",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-06.json",
+      "sha256": "458e1e01ce5105215caba27e8f61f9cda1569f85a297ccea1044cc9d27ecef96",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-07.json",
+      "sha256": "d04e111134767dda157edcacc6fcd4eb2a90d9b4007c08c3313f207fbb5bb233",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-08.json",
+      "sha256": "d5c8aee455f858f9621b4858eefacf0b97f4422f57c135c37d600ebad893ff89",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-09.json",
+      "sha256": "8789d729f4b905b9a012185b27f24231da94c41c631f6013a09378f9e034b526",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    },
+    {
+      "file": "batches/batch-10.json",
+      "sha256": "562debd69a650e0a3f20ed6967934641ff137f5bbea12e1d34c9f6313584cde2",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "xhigh",
+      "promptVersion": 1
+    }
+  ],
+  "authoringHashes": {
+    "event-brief.json": "832feeb08e283995843fef5f5c7a74aa424009964573f8ada49602c58b54bbee",
+    "participant-profiles.json": "691bdfd16a6dad5d9a91544fbfe8676166c987011b4a909a5a35e2b9b8cec806",
+    "generation-prompt.md": "f4de8b43f136d7c3d409d346e18c60dd20aa76cb3b3c267322d7e3952f325dc4"
+  }
+}
