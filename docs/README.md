@@ -38,6 +38,7 @@ Core handbooks, then ADRs in number order, then ops and the readiness record:
 **Portfolio and working conventions**
 
 - [Portfolio plan](portfolio-plan.md) — current decisions, Notion task board and the next bounded work
+- [Showcase and test scenarios](showcase-scenarios.md) — workshop story, synthetic campaign plan and extraction evidence
 - [Code readability](code-readability.md) — user naming preferences and readable operation boundaries
 
 **Frontend**

@@ -72,7 +72,11 @@ permit a public demo.
 ## Campaign topic analysis: backend implementation
 
 The first showcase is feedback after events/workshops, including research over
-many responses. A second showcase is optional; SaaS onboarding is not selected.
+many responses. The user selected a **workshop with 100 participants** as the
+first concrete showcase. The working subject is smartphone photography; the
+[showcase and scenario plan](showcase-scenarios.md) records the story, remaining
+questionnaire gap and the next `Create test scenarios` task.
+A second showcase is optional; SaaS onboarding is not selected.
 Do not claim response rates or participant motivation have been validated.
 
 The bounded asynchronous backend analyzes existing campaign feedback. See
@@ -111,6 +115,11 @@ taxonomy evolution and large comparative experiments are not prerequisites.
 
 ## Still open
 
+- **Campaign analysis product rewrite.** Replace the six-person, gossip-oriented
+  summary experience with a standalone analysis view using themes, distinct
+  respondent counts, evidence and research chat. The topic backend is complete;
+  questionnaire adaptation, summary replacement and UI/tool integration are not.
+
 - **Second showcase.** Event/workshop feedback is selected first. Another
   business case needs a concrete user benefit; the previous candidate list is
   brainstorming, not validated demand or an instruction to generalize events.
@@ -138,10 +147,12 @@ completion tracker or a separate priority system.
 | 06. Expose the personal text demo                 | Visitor Google login, selected chat allowance, private sandbox and clear exhausted-credit behavior.                                                                              |
 | 07. Connect the two-minute browser voice demo     | One selected interview story, bounded session, visible captured result and measured representative provider usage.                                                               |
 | 08. Clarify staff actions                         | Readable takeover/resume/close, staff messages and correction entry flows with preserved behavior.                                                                               |
-| 09. Clarify campaign summaries                    | Visible claim/recovery, context, generation, persistence and notification boundaries.                                                                                            |
+| 09. Replace the legacy campaign summary           | Standalone campaign analysis with evidence, respondent counts and research-chat access; replace the six-person/gossip framing.                                                   |
 | 10. Review large repositories and delivery detail | Concrete responsibility findings; retain cohesive SQL owners and already clear dispatcher boundaries.                                                                            |
 | 11. Review deferred tests and harnesses           | Behavior-checked cases/fixtures, duplication removed and reviewed suites returned to their owners while coverage remains active.                                                 |
 | 12. Rehearse the showcase and interview           | Repeatable demo plus explanations of storage, queues, failure handling and human correction; fix material findings before handoff.                                               |
+| 13. Implement campaign topic-analysis backend     | Completed at `bfed7c4`: Node orchestration, OpenRouter embeddings, Python clustering and PostgreSQL persistence; live provider/container verification remains open.              |
+| 14. Create test scenarios                         | Approved workshop questionnaire/pilot, bounded Luna batches, frozen synthetic conversations, reviewed expected findings and repeatable extraction replay; see the scenario plan. |
 
 Real telephone dialing, a general phone-plus-arbitrary-goal builder, venue
 quote collection and web search remain future ideas outside this first task
