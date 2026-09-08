@@ -130,11 +130,9 @@ The token implementation has one owner per concern:
 | `apps/admin/src/lib/useTheme.ts` and `index.html`   | The light/dark preference and its pre-paint `dark` class.                                             |
 | `apps/admin/src/lib/usePalette.ts` and `index.html` | The palette preference and its pre-paint `data-palette` attribute.                                    |
 
-The focused token checks are
-[`packages/design-tokens/scripts/verify-tokens.mjs`](../../packages/design-tokens/scripts/verify-tokens.mjs),
-[`apps/admin/test/theme-tokens.spec.ts`](test/theme-tokens.spec.ts) and
-[`apps/admin/test/palettes.spec.ts`](test/palettes.spec.ts). They measure the
-token system; screen tests should verify user-visible behaviour instead of
-copying CSS or class strings. Relevant decisions are [ADR 0005](../../docs/decisions/0005-theming-and-dark-mode.md), [ADR 0011](../../docs/decisions/0011-display-typeface.md) and [ADR 0012](../../docs/decisions/0012-selectable-palettes.md).
+When changing a token, check the affected light/dark and palette combinations
+for readable contrast and preserve visible text beside status colour. Screen
+tests should verify user-visible behaviour instead of copying CSS or class
+strings. Relevant decisions are [ADR 0005](../../docs/decisions/0005-theming-and-dark-mode.md), [ADR 0011](../../docs/decisions/0011-display-typeface.md) and [ADR 0012](../../docs/decisions/0012-selectable-palettes.md).
 
 For ownership and API/runtime rules, see [`AGENTS.md`](./AGENTS.md).
