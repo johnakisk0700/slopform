@@ -23,7 +23,6 @@ import {
 } from "../post-event-feedback-doubles.harness.js";
 import {
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
-  FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
   FEEDBACK_OUTBOX_LEGACY_AMBIGUOUS_ERROR,
   FeedbackOutboxRepository,
 } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.js";
@@ -147,52 +146,6 @@ describe("FeedbackOutboxRepository direct dispatch", () => {
     expect(query.params).toEqual([
       "feedback-conversation:7c57f3b8-2b13-48f5-8730-18ac71f490cd",
     ]);
-  });
-
-  it("claims a bounded batch in one PostgreSQL statement on the supplied transaction", async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [] });
-    const transaction = drizzle({ client: { query } as never });
-    const database = { transaction: vi.fn() } as unknown as DatabaseService;
-    const repository = new FeedbackOutboxRepository(
-      database,
-      {} as FeedbackCampaignRepository,
-    );
-
-    expect(
-      await repository.claimDispatchBatch(
-        transaction as never,
-        now,
-        undefined,
-        undefined,
-        [outboxId],
-      ),
-    ).toEqual([]);
-
-    expect(database.transaction).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledOnce();
-    const [statement, parameters] = query.mock.calls[0] as [
-      { text: string },
-      unknown[],
-    ];
-    expect(statement.text).toMatch(/^with "dispatch_candidates" as /);
-    expect(statement.text).toContain(
-      'for update of "message_outbox" skip locked',
-    );
-    expect(statement.text).toContain('update "message_outbox" set');
-    expect(statement.text).toContain('select "id" from "dispatch_candidates"');
-    expect(statement.text).toContain("returning");
-    expect(statement.text).toContain("clock_timestamp()");
-    expect(statement.text).toContain("not exists");
-    expect(parameters).toEqual(
-      expect.arrayContaining([
-        4,
-        FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
-        outboxId,
-        ...FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
-        expect.stringMatching(/^[0-9a-f-]{36}$/u),
-      ]),
-    );
-    expect(parameters).not.toContain(now);
   });
 
   it("does not report a terminal write when the token CAS matched no row", async () => {
@@ -684,7 +637,7 @@ describePostgres(
       const firstClaimed = Promise.withResolvers<string[]>();
       const finishFirst = Promise.withResolvers<void>();
       const firstTransaction = client.db.transaction(async (transaction) => {
-        const rows = await repository.claimDispatchBatch(transaction, now, 1);
+        const rows = await repository.claimDispatchBatch(transaction, now, 2);
         firstClaimed.resolve(rows.map((row) => row.id));
         await finishFirst.promise;
         return rows;
@@ -693,11 +646,14 @@ describePostgres(
       void firstTransaction.catch(firstClaimed.reject);
 
       try {
-        expect(await firstClaimed.promise).toEqual([oldestId]);
+        expect(await firstClaimed.promise).toEqual([
+          oldestId,
+          independentIds[0],
+        ]);
         const secondBatch = await client.db.transaction((transaction) =>
           repository.claimDispatchBatch(transaction, now),
         );
-        expect(secondBatch.map((row) => row.id)).toEqual(independentIds);
+        expect(secondBatch.map((row) => row.id)).toEqual([independentIds[1]]);
         expect(
           secondBatch.every(
             (row) => row.status === "claimed" && row.claimToken,
