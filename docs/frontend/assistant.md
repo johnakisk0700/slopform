@@ -39,9 +39,11 @@ token-only styles in [`globals.css`](../../apps/admin/src/styles/globals.css).
 This screen predates the generated API client and is the one documented
 exception in [root AGENTS.md](../../AGENTS.md) and
 [apps/admin/AGENTS.md](../../apps/admin/AGENTS.md): it calls the shared
-`ofetch` facade directly and validates with `features/assistant/schema.ts`
-because polling owns optimistic turns, idempotent replay and attempt fencing
-beyond the response shape. It migrates to generated hooks in its own change.
+`ofetch` facade directly with generated HTTP request/response types because
+polling owns optimistic turns, idempotent replay and attempt fencing beyond
+the response shape. Composer and branch editors trim and bound user input at
+submission; outgoing typed requests are sent directly. SSE frames and saved
+picker values retain their untyped-input parsers. It migrates to generated hooks in its own change.
 Every other screen uses generated hooks — see
 [API contract](../backend/mechanisms/api-contract.md).
 
@@ -55,8 +57,8 @@ replay recovers a lost `201` without a second turn.
 While `queued`/`running`, the page polls `GET …/turns/:turnId` every **1.2s**
 and opens `GET …/turns/:turnId/stream` via authenticated `ofetch` with
 `responseType: "stream"` (native `EventSource` cannot send the Clerk bearer).
-Every JSON body and SSE data frame enters as `unknown` and must pass a
-feature-local Zod schema. The full thread response is authoritative; the
+SSE data frames enter as `unknown` and must pass a feature-local Zod schema.
+HTTP responses use the generated contract. The full thread response is authoritative; the
 optimistic user message keys on `requestId` until the durable turn arrives.
 Live frames overlay the durable turn under the id the answer will take; they
 carry no copy/attribution footer, keep the activity marker, and drop on settle.
@@ -120,8 +122,9 @@ fiction:
   history. OpenAI direct shows a summary when requested; OpenRouter shows live
   reasoning — provider asymmetry, not a UI bug.
 - **Tool activity.** `AssistantToolCallCard`: operator label/state in summary,
-  bounded JSON on expand; same typed list from SSE live and the durable turn
-  after poll/reload.
+  bounded, indented JSON on expand; same typed list from SSE live and the
+  durable turn after poll/reload. Payloads render as escaped text using
+  `JSON.stringify`; there is no separate recursive syntax renderer.
 - **Cost.** Settled footer: total tokens and labelled estimated EUR from the
   turn's persisted model/tier/price version — never the browser picker.
 - **Copy.** Settled answer with no activity copies directly; with reasoning/tool
@@ -175,12 +178,11 @@ opacity animation.
 
 ## Tests and extension points
 
-`apps/admin/test/assistant-contract.spec.ts` protects: frontend/backend
-model/effort defaults and Qwen/OpenRouter adapter coverage; idempotency UUID
-and lifecycle schemas; title/terminal boundaries; turn flattening; failure copy
-and relative paths; HTML sanitisation/GFM/highlight; memoized renderer plugin
-order; URL resume, hydration scrolling, Mermaid theming, guarded submission,
-non-live logs; retry/revise/discard affordances.
+`apps/admin/test/assistant-contract.spec.ts` protects fast-lane eligibility and
+turn flattening. Focused assistant stream, copy and artifact suites cover
+live/persisted prefix reconciliation, retry reset, SSE parsing, copied activity
+and retained reasoning/tool/usage data. Markdown parsing retains its existing
+raw → sanitize → highlight pipeline.
 
 Before mutating tools: separate proposed-action records, operator
 approval/rejection, idempotent execution and audit — do not squeeze into

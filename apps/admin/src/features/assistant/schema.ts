@@ -108,59 +108,7 @@ export function assistantModelSupportsServiceTier(
   );
 }
 
-const messageContentSchema = z.string().trim().min(1).max(20_000);
-
-const assistantTurnRequestSchema = z
-  .object({
-    requestId: z.uuid(),
-    model: assistantModelSchema.optional(),
-    effort: assistantEffortSchema.optional().default(DEFAULT_ASSISTANT_EFFORT),
-    serviceTier: assistantServiceTierSchema
-      .optional()
-      .default(DEFAULT_ASSISTANT_SERVICE_TIER),
-    content: messageContentSchema,
-  })
-  .strict();
-
-type AssistantTurnRequest = z.infer<typeof assistantTurnRequestSchema>;
-
-const branchAssistantThreadRequestSchema = assistantTurnRequestSchema
-  .extend({ sourceTurnId: z.uuid() })
-  .strict();
-
-export function buildAssistantTurnRequest(
-  requestId: string,
-  model: AssistantModel,
-  effort: AssistantEffort,
-  serviceTier: AssistantServiceTier,
-  content: string,
-): AssistantTurnRequest {
-  return assistantTurnRequestSchema.parse({
-    requestId,
-    model,
-    serviceTier,
-    effort,
-    content,
-  });
-}
-
-export function buildBranchAssistantThreadRequest(
-  sourceTurnId: string,
-  requestId: string,
-  model: AssistantModel,
-  effort: AssistantEffort,
-  serviceTier: AssistantServiceTier,
-  content: string,
-): z.infer<typeof branchAssistantThreadRequestSchema> {
-  return branchAssistantThreadRequestSchema.parse({
-    sourceTurnId,
-    requestId,
-    model,
-    serviceTier,
-    effort,
-    content,
-  });
-}
+export const ASSISTANT_MESSAGE_MAX_LENGTH = 20_000;
 
 export type AssistantFailureCode = AssistantThreadDtoOutputTurnsItemErrorCode;
 
@@ -192,17 +140,6 @@ export const assistantToolCallSchema = z
   })
   .strict();
 
-export const assistantUsageSchema = z
-  .object({
-    inputTokens: z.number().int().nonnegative().nullable(),
-    outputTokens: z.number().int().nonnegative().nullable(),
-    reasoningTokens: z.number().int().nonnegative().nullable(),
-    cachedInputTokens: z.number().int().nonnegative().nullable(),
-    totalTokens: z.number().int().nonnegative().nullable(),
-    estimatedCostEurMicros: z.number().int().nonnegative().nullable(),
-    pricingVersion: z.string().trim().min(1).max(32).nullable(),
-  })
-  .strict();
 export type AssistantUsage = AssistantThreadDtoOutputTurnsItemUsage;
 
 export type AssistantToolCall = AssistantThreadDtoOutputTurnsItemToolCallsItem;

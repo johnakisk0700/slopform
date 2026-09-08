@@ -7,6 +7,7 @@ import {
   type AssistantCopyMode,
 } from "../../../features/assistant/copy";
 import {
+  ASSISTANT_MESSAGE_MAX_LENGTH,
   ASSISTANT_MODELS,
   type AssistantDisplayMessage,
 } from "../../../features/assistant/schema";
@@ -85,13 +86,7 @@ export const AssistantMessage = memo(
         {streaming ? (
           <AssistantThinkingIndicator />
         ) : message.status === "succeeded" ? (
-          <AssistantMessageActions
-            message={message}
-            model={modelLabel(message)}
-            effort={message.effort}
-            serviceTier={message.serviceTier}
-            usage={message.usage}
-          />
+          <AssistantMessageActions message={message} />
         ) : null}
       </article>
     );
@@ -154,6 +149,7 @@ function AssistantUserMessage({
             ref={editorRef}
             id={`${message.id}-branch-content`}
             rows={3}
+            maxLength={ASSISTANT_MESSAGE_MAX_LENGTH}
             value={draft}
             onChange={(event) => setDraft(event.currentTarget.value)}
             className="min-h-20 w-full resize-y rounded-sm border border-border bg-surface px-2.5 py-2 text-sm leading-5 text-ink"
@@ -219,17 +215,10 @@ function AssistantUserMessage({
 
 function AssistantMessageActions({
   message,
-  model,
-  effort,
-  serviceTier,
-  usage,
 }: {
   message: AssistantDisplayMessage;
-  model: string;
-  effort: AssistantDisplayMessage["effort"];
-  serviceTier: AssistantDisplayMessage["serviceTier"];
-  usage: AssistantDisplayMessage["usage"];
 }) {
+  const { effort, serviceTier, usage } = message;
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -306,7 +295,7 @@ function AssistantMessageActions({
         </Button>
       )}
       <span className="ml-1.5 font-mono text-[length:var(--jts-text-2xs)] tabular-nums text-ink-subtle">
-        {model} · {effort} thinking
+        {modelLabel(message)} · {effort} thinking
         {/* Stamped only when the fast lane was actually bought, because it is
             the one setting here that changed what the turn cost. */}
         {serviceTier === "fast" ? " · fast lane" : ""}

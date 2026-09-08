@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import type { CreateAssistantTurnDto } from "../api/generated/model/createAssistantTurnDto";
 import type { AssistantThreadListDtoOutput } from "../api/generated/model/assistantThreadListDtoOutput";
 import { AssistantComposer } from "../components/admin/assistant/AssistantComposer";
 import { AssistantConversation } from "../components/admin/assistant/AssistantConversation";
@@ -31,8 +32,7 @@ import {
 } from "../features/assistant/layout";
 import {
   assistantFailureMessage,
-  buildBranchAssistantThreadRequest,
-  buildAssistantTurnRequest,
+  ASSISTANT_MESSAGE_MAX_LENGTH,
   messagesFromThread,
   type AssistantDisplayMessage,
   type AssistantEffort,
@@ -63,32 +63,13 @@ type PagePhase = "loading" | "idle" | "submitting" | AssistantTurnStatus;
 type AssistantAction =
   | { kind: "initial"; threadId: string | null }
   | { kind: "load"; threadId: string }
-  | {
-      kind: "create";
-      requestId: string;
-      model: AssistantModel;
-      effort: AssistantEffort;
-      serviceTier: AssistantServiceTier;
-      content: string;
-    }
-  | {
-      kind: "append";
-      threadId: string;
-      requestId: string;
-      model: AssistantModel;
-      effort: AssistantEffort;
-      serviceTier: AssistantServiceTier;
-      content: string;
-    }
+  | { kind: "create"; request: PendingUserMessage }
+  | { kind: "append"; threadId: string; request: PendingUserMessage }
   | {
       kind: "branch";
       threadId: string;
       sourceTurnId: string;
-      requestId: string;
-      model: AssistantModel;
-      effort: AssistantEffort;
-      serviceTier: AssistantServiceTier;
-      content: string;
+      request: PendingUserMessage;
     }
   | { kind: "poll"; threadId: string; turnId: string }
   | { kind: "retry"; threadId: string; turnId: string };
@@ -101,12 +82,25 @@ interface PageFailure {
   revision: PendingUserMessage | null;
 }
 
-interface PendingUserMessage {
-  requestId: string;
-  model: AssistantModel;
-  effort: AssistantEffort;
-  serviceTier: AssistantServiceTier;
-  content: string;
+type PendingUserMessage = Required<CreateAssistantTurnDto>;
+
+function buildFailedTurnRecovery(
+  threadId: string,
+  turn: AssistantTurn,
+): PageFailure {
+  return {
+    kind: "durable",
+    message: assistantFailureMessage(turn.error?.code ?? "generation_failed"),
+    action: { kind: "retry", threadId, turnId: turn.id },
+    retryLabel: "Retry turn",
+    revision: {
+      requestId: turn.requestId,
+      model: turn.model,
+      effort: turn.effort,
+      serviceTier: turn.serviceTier,
+      content: turn.user.content,
+    },
+  };
 }
 
 function waitForNextPoll(signal: AbortSignal): Promise<void> {
@@ -266,7 +260,7 @@ export function AssistantPage() {
         });
       }
 
-      async function refreshThreadList(): Promise<AssistantThreadSummary[]> {
+      async function refreshThreadList(): Promise<void> {
         const list = await api<AssistantThreadListDtoOutput>(
           ASSISTANT_THREADS_PATH,
           {
@@ -274,7 +268,6 @@ export function AssistantPage() {
           },
         );
         setThreads(list.items);
-        return list.items;
       }
 
       async function watchTurn(
@@ -342,21 +335,7 @@ export function AssistantPage() {
           if (turn.status === "failed") {
             setPhase("failed");
             setAnnouncement("Assistant turn failed and needs attention.");
-            setFailure({
-              kind: "durable",
-              message: assistantFailureMessage(
-                turn.error?.code ?? "generation_failed",
-              ),
-              action: { kind: "retry", threadId, turnId: turn.id },
-              retryLabel: "Retry turn",
-              revision: {
-                requestId: turn.requestId,
-                model: turn.model,
-                effort: turn.effort,
-                serviceTier: turn.serviceTier,
-                content: turn.user.content,
-              },
-            });
+            setFailure(buildFailedTurnRecovery(threadId, turn));
             return;
           }
 
@@ -385,25 +364,7 @@ export function AssistantPage() {
 
         if (lastTurn.status === "failed") {
           setPhase("failed");
-          setFailure({
-            kind: "durable",
-            message: assistantFailureMessage(
-              lastTurn.error?.code ?? "generation_failed",
-            ),
-            action: {
-              kind: "retry",
-              threadId: thread.id,
-              turnId: lastTurn.id,
-            },
-            retryLabel: "Retry turn",
-            revision: {
-              requestId: lastTurn.requestId,
-              model: lastTurn.model,
-              effort: lastTurn.effort,
-              serviceTier: lastTurn.serviceTier,
-              content: lastTurn.user.content,
-            },
-          });
+          setFailure(buildFailedTurnRecovery(thread.id, lastTurn));
           return;
         }
 
@@ -432,19 +393,23 @@ export function AssistantPage() {
             await adoptThread(await fetchThread(action.threadId));
             return;
           }
-          case "create": {
-            const thread = await api<AssistantThread>(ASSISTANT_THREADS_PATH, {
-              method: "POST",
-              body: buildAssistantTurnRequest(
-                action.requestId,
-                action.model,
-                action.effort,
-                action.serviceTier,
-                action.content,
-              ),
-              signal: controller.signal,
-            });
+          case "create":
+          case "branch": {
+            const branching = action.kind === "branch";
+            const thread = await api<AssistantThread>(
+              branching
+                ? `${ASSISTANT_THREADS_PATH}/${action.threadId}/branches`
+                : ASSISTANT_THREADS_PATH,
+              {
+                method: "POST",
+                body: branching
+                  ? { ...action.request, sourceTurnId: action.sourceTurnId }
+                  : action.request,
+                signal: controller.signal,
+              },
+            );
             skipHydrationThreadIdRef.current = thread.id;
+            alignLatestQuestionRef.current = true;
             setActiveThread(thread);
             setPendingUser(null);
             suppressedRouteLoadRef.current = thread.id;
@@ -463,13 +428,7 @@ export function AssistantPage() {
               `${ASSISTANT_THREADS_PATH}/${action.threadId}/turns`,
               {
                 method: "POST",
-                body: buildAssistantTurnRequest(
-                  action.requestId,
-                  action.model,
-                  action.effort,
-                  action.serviceTier,
-                  action.content,
-                ),
+                body: action.request,
                 signal: controller.signal,
               },
             );
@@ -480,37 +439,6 @@ export function AssistantPage() {
             );
             setPendingUser(null);
             await watchTurn(action.threadId, turn);
-            return;
-          }
-          case "branch": {
-            const thread = await api<AssistantThread>(
-              `${ASSISTANT_THREADS_PATH}/${action.threadId}/branches`,
-              {
-                method: "POST",
-                body: buildBranchAssistantThreadRequest(
-                  action.sourceTurnId,
-                  action.requestId,
-                  action.model,
-                  action.effort,
-                  action.serviceTier,
-                  action.content,
-                ),
-                signal: controller.signal,
-              },
-            );
-            skipHydrationThreadIdRef.current = thread.id;
-            alignLatestQuestionRef.current = true;
-            setActiveThread(thread);
-            setPendingUser(null);
-            suppressedRouteLoadRef.current = thread.id;
-            navigate(`/admin/assistant/${thread.id}`, {
-              replace: true,
-              state: { preserveAssistantLiveAlignment: true },
-            });
-            await refreshThreadList();
-            const turn = thread.turns.at(-1);
-            if (turn) await watchTurn(thread.id, turn);
-            else setPhase("idle");
             return;
           }
           case "poll": {
@@ -562,13 +490,7 @@ export function AssistantPage() {
           retryLabel: status === 409 ? "Reload conversation" : "Try again",
           revision:
             submission && submission.kind !== "branch"
-              ? {
-                  requestId: submission.requestId,
-                  model: submission.model,
-                  effort: submission.effort,
-                  serviceTier: submission.serviceTier,
-                  content: submission.content,
-                }
+              ? submission.request
               : null,
         });
       } finally {
@@ -631,17 +553,16 @@ export function AssistantPage() {
     return [...persisted, optimistic];
   }, [activeThread, liveTurn, pendingUser]);
 
-  const latestUserMessageId = useMemo(
-    () =>
-      [...messages].reverse().find((message) => message.role === "user")?.id,
-    [messages],
-  );
+  const latestUserMessageId = messages.findLast(
+    (message) => message.role === "user",
+  )?.id;
   const activeThreadId = activeThread?.id;
   const branchFromMessage = useCallback(
     (message: AssistantDisplayMessage, content: string): void => {
       if (operationRef.current || isBusy || !activeThreadId) return;
       const editedContent = content.trim();
-      if (!editedContent) return;
+      if (!editedContent || editedContent.length > ASSISTANT_MESSAGE_MAX_LENGTH)
+        return;
 
       setFailure(null);
       setComposerError(null);
@@ -650,11 +571,13 @@ export function AssistantPage() {
         kind: "branch",
         threadId: activeThreadId,
         sourceTurnId: message.turnId,
-        requestId: crypto.randomUUID(),
-        model: selectedModel,
-        effort: selectedEffort,
-        serviceTier: selectedServiceTier,
-        content: editedContent,
+        request: {
+          requestId: crypto.randomUUID(),
+          model: selectedModel,
+          effort: selectedEffort,
+          serviceTier: selectedServiceTier,
+          content: editedContent,
+        },
       });
     },
     [
@@ -843,39 +766,30 @@ export function AssistantPage() {
       return;
     }
 
-    const requestId = crypto.randomUUID();
-    setPendingUser({
-      requestId,
+    if (content.length > ASSISTANT_MESSAGE_MAX_LENGTH) {
+      setComposerError("Keep your message within 20,000 characters.");
+      textareaRef.current?.focus();
+      return;
+    }
+
+    const request: PendingUserMessage = {
+      requestId: crypto.randomUUID(),
       model: selectedModel,
       effort: selectedEffort,
       serviceTier: selectedServiceTier,
       content,
-    });
+    };
+    setPendingUser(request);
     setComposer("");
     setComposerError(null);
     setAnnouncement("Message sent. Assistant generation queued.");
     alignLatestQuestionRef.current = true;
 
-    if (activeThread) {
-      void executeAction({
-        kind: "append",
-        threadId: activeThread.id,
-        requestId,
-        model: selectedModel,
-        effort: selectedEffort,
-        serviceTier: selectedServiceTier,
-        content,
-      });
-    } else {
-      void executeAction({
-        kind: "create",
-        requestId,
-        model: selectedModel,
-        effort: selectedEffort,
-        serviceTier: selectedServiceTier,
-        content,
-      });
-    }
+    void executeAction(
+      activeThread
+        ? { kind: "append", threadId: activeThread.id, request }
+        : { kind: "create", request },
+    );
   }
 
   function startNewConversation(): void {
