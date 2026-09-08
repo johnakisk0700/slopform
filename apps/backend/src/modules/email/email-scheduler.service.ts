@@ -6,7 +6,7 @@ import { EMAIL_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   EMAIL_JOB_NAMES,
   EMAIL_JOB_SCHEMA_VERSION,
-  emailRelayJobDataSchema,
+  type EmailRelayJobData,
   type EmailJobData,
   type EmailJobName,
 } from "./email.schemas.js";
@@ -22,10 +22,10 @@ export class EmailSchedulerService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    const data = emailRelayJobDataSchema.parse({
+    const data: EmailRelayJobData = {
       schemaVersion: EMAIL_JOB_SCHEMA_VERSION,
       correlationId: EMAIL_OUTBOX_RELAY_SCHEDULER_ID,
-    });
+    };
     await this.queue.upsertJobScheduler(
       EMAIL_OUTBOX_RELAY_SCHEDULER_ID,
       { every: EMAIL_OUTBOX_RELAY_INTERVAL_MS },

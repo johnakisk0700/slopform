@@ -29,6 +29,10 @@ const optionalCredential = z.preprocess(
     )
     .optional(),
 );
+const optionalEmailAddress = z.preprocess(
+  emptyStringToUndefined,
+  z.email().max(320).optional(),
+);
 const optionalWebhookSecret = z.preprocess(
   emptyStringToUndefined,
   z
@@ -190,6 +194,8 @@ export const environmentSchema = z
     AUTH_DEV_BYPASS: booleanFromEnvironment,
     OPENAI_API_KEY: optionalCredential,
     OPENROUTER_API_KEY: optionalCredential,
+    RESEND_API_KEY: optionalCredential,
+    RESEND_FROM_EMAIL: optionalEmailAddress,
     FEEDBACK_TOPIC_ANALYSIS_ENABLED: booleanFromEnvironment,
     FEEDBACK_TOPIC_CLUSTERING_PYTHON: z.preprocess(
       emptyStringToUndefined,
@@ -412,6 +418,14 @@ export const environmentSchema = z
         message:
           "WASENDER_WEBHOOK_SECRET is required when the Wasender webhook is enabled",
         path: ["WASENDER_WEBHOOK_ENABLED"],
+      });
+    }
+
+    if (environment.RESEND_API_KEY && !environment.RESEND_FROM_EMAIL) {
+      context.addIssue({
+        code: "custom",
+        message: "RESEND_FROM_EMAIL is required when RESEND_API_KEY is set",
+        path: ["RESEND_FROM_EMAIL"],
       });
     }
 

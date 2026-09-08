@@ -121,11 +121,14 @@ openssl rand -hex 32 > secrets/mongodb_app_password
 openssl rand -hex 32 > secrets/redis_password
 touch secrets/bull_board_password secrets/clerk_secret_key
 touch secrets/openai_api_key secrets/openrouter_api_key
+touch secrets/resend_api_key
 touch secrets/wasender_session_api_key secrets/wasender_webhook_secret
 ```
 
-Fill Clerk and the selected AI-provider files. First VPS provision — copy only
-these named files (never a random `secrets/*` dump):
+Fill Clerk, the selected AI-provider files and the optional Resend key. The
+Resend sender remains in `.env.production`; its domain must be verified in the
+Resend account. First VPS provision — copy only these named files (never a
+random `secrets/*` dump):
 
 ```bash
 ssh -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
@@ -135,7 +138,7 @@ ssh -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
 scp -i "$HOME/.ssh/id_ed25519" .env.production \
   root@203.0.113.10:/opt/slopform/shared/.env.production
 scp -i "$HOME/.ssh/id_ed25519" \
-  secrets/{postgres_password,mongodb_root_password,mongodb_app_password,redis_password,bull_board_password,clerk_secret_key,openai_api_key,openrouter_api_key,wasender_session_api_key,wasender_webhook_secret} \
+  secrets/{postgres_password,mongodb_root_password,mongodb_app_password,redis_password,bull_board_password,clerk_secret_key,openai_api_key,openrouter_api_key,resend_api_key,wasender_session_api_key,wasender_webhook_secret} \
   root@203.0.113.10:/opt/slopform/shared/secrets/
 
 ssh -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
@@ -177,6 +180,7 @@ summaries.
 | Redis              | password file at startup                                            |
 | Mongo init         | root secret (fresh volumes only)                                    |
 | API / worker       | app Mongo secret; AI keys (API resolves availability; worker calls) |
+| Worker only        | Resend API key; the sender address remains ordinary configuration   |
 | API only           | Clerk secret                                                        |
 | Native nginx / web | none                                                                |
 | Bull Board         | password file only when enabled                                     |

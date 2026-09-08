@@ -93,7 +93,7 @@ export class EmailDeliveryListDto extends createZodDto(
   emailDeliveryListSchema,
 ) {}
 
-export type CreateEmailDeliveryInput = z.input<
+export type CreateEmailDeliveryInput = z.infer<
   typeof createEmailDeliverySchema
 >;
 export type EmailDeliveryStatus = z.infer<typeof emailDeliverySchema>["status"];

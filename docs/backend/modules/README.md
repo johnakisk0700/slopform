@@ -15,7 +15,7 @@ conventions: [documentation standard](../../documentation-standard.md).
 | [post-event-feedback-scenarios.md](post-event-feedback-scenarios.md)                 | Executable behavior suite, end states, known defects, harness/corpus contracts                           |
 | [events.md](events.md)                                                               | Stub events, attendance corrections, shared D16 feedback-candidate helper                                |
 | [assistant.md](assistant.md)                                                         | Authenticated owner-scoped AI threads and durable generation turns                                       |
-| [email-delivery.md](email-delivery.md)                                               | Provider-agnostic email intent, outbox, redacted attempts, admin visibility                              |
+| [email-delivery.md](email-delivery.md)                                               | Email intent, outbox, optional Resend delivery, redacted attempts and admin visibility                   |
 | [participants.md](participants.md)                                                   | Canonical profiles, feedback WhatsApp opt-in, WordPress import                                           |
 
 Current feedback refactor progress and next work live in the
