@@ -1,6 +1,6 @@
 # Slopform admin style guide
 
-Status: current admin UI contract, verified 2026-09-08.
+Status: current admin UI contract, updated 2026-09-10.
 
 This is the short guide for building a screen in `apps/admin`. It describes the
 tokens and conventions that are actually shipped. The values live in the
@@ -35,7 +35,8 @@ semantic values while keeping these roles stable.
 | Secondary action | No separate `--jts-color-secondary` token                                                   | HeroUI `variant="secondary"`                                             | A lower emphasis action. HeroUI maps it to the default surface (`--jts-color-surface-sunken`) with the normal ink text colour. Use the component variant; do not invent a second brand colour. |
 | Accent           | `--jts-color-accent`, `--jts-color-accent-soft`                                             | `text-copper`, `bg-copper-soft`                                          | Warm secondary emphasis, small markers and occasional labels. It is not the default button colour.                                                                                             |
 | Status           | `--jts-color-success`, `-warning`, `-danger`, `-info` and each `-soft` / `-border`          | `text-success`, `bg-warning-soft`, `border-danger-border`, etc.          | State and attention. Always pair the tone with visible text or an icon.                                                                                                                        |
-| Sidebar          | `--jts-color-sidebar-*`                                                                     | `bg-sidebar`, `text-sidebar-fg`, `text-sidebar-active-index`, etc.       | The inverse navigation slab and its states.                                                                                                                                                    |
+| Sidebar          | `--jts-color-sidebar-*`                                                                     | `bg-sidebar`, `text-sidebar-fg`, `text-sidebar-accent`, etc.             | The inverse navigation slab and active navigation icons.                                                                                                                                       |
+| Product mark     | `--jts-color-brand-upper`, `-lower`, `-inverse`                                             | `fill-brand-upper`, `fill-brand-lower`, `fill-brand-inverse`             | The two filled curves in `BrandMark`; distinct from interactive emphasis.                                                                                                                      |
 
 `--jts-color-link` and `--jts-color-focus` are semantic roles too. Use the
 existing link and focus behaviour instead of styling anchors or focus rings
@@ -50,6 +51,13 @@ The available palettes are Slopform (the default house wine, represented by no
 pre-paint script and `usePalette` keep the `jts-palette` choice in sync. A
 palette repaints semantic colours only; type, spacing, shape and motion remain
 shared.
+
+The product mark keeps its rose/wine identity across palettes. Its lower curve
+lifts to the text tone in dark mode, and strong surfaces use the inverse fill.
+Noir supplies neutral brand fills. The standalone brand export carries fixed
+light-surface colours. The favicon has a transparent background and lightens
+its lower curve when the browser or embedding surface uses a dark colour scheme.
+The shared lockup keeps a compact 6px gap between the mark and wordmark.
 
 ## Spacing and layout rhythm
 
@@ -76,12 +84,12 @@ grid tracks shrinkable with `min-w-0` when a pane sits beside another pane.
 
 ## Type
 
-| Role             | Token / utility                                               | Use                                                           |
-| ---------------- | ------------------------------------------------------------- | ------------------------------------------------------------- |
-| UI and body      | `--jts-font-sans` / `font-sans` (Manrope Variable)            | All normal copy, controls and data. Supports Latin and Greek. |
-| Display headings | `--jts-font-display` / `font-display` (Commissioner Variable) | Page titles and display-level headings.                       |
-| Wordmark         | `--jts-font-brand` / `font-brand` (Sora Variable)             | `BrandLockup` only. Never use it for UI copy.                 |
-| Machine strings  | `--jts-font-mono` / `font-mono`                               | IDs, model names and machine timestamps; never prose.         |
+| Role             | Token / utility                                          | Use                                                                |
+| ---------------- | -------------------------------------------------------- | ------------------------------------------------------------------ |
+| UI and body      | `--jts-font-sans` / `font-sans` (Manrope Variable)       | All normal copy, controls and data. Supports Latin and Greek.      |
+| Display headings | `--jts-font-display` / `font-display` (Manrope Variable) | Page titles and display-level headings; resolves to the UI family. |
+| Wordmark         | `--jts-font-brand` / `font-brand` (Sora Variable)        | `BrandLockup` only. Never use it for UI copy.                      |
+| Machine strings  | `--jts-font-mono` / `font-mono`                          | IDs, model names and machine timestamps; never prose.              |
 
 The semantic type scale is `2xs` (10px), `xs` (12px), `sm` (14px), `md`
 (16px), then fluid `lg`, `xl`, `2xl` and `3xl`. The scale is available as
@@ -90,10 +98,46 @@ size because Tailwind's `text-lg` is its own fixed scale. Body leading is 1.6;
 headings use tight or snug leading. Use `tabular-nums` for numbers operators
 compare.
 
-Metadata uses the shared `jts-overline` recipe: uppercase, extrabold and
-tracked. Keep ordinary content sentence case. Page titles may use the shared
-`jts-title-mark`; `JtsPageHeader` uses a fixed `1.375rem` display title for the
-shared page header. The sidebar index is the navigation indicator.
+Metadata uses the shared `jts-overline` recipe: 12px, semibold, sentence case
+and normal tracking. Its name identifies the small contextual label, not an
+uppercase treatment. Table headings and assistant field labels follow the same
+sentence-case convention. `JtsPageHeader` uses a fixed `1.375rem` bold Manrope
+title followed by its description; back links sit above the title. The shared
+`jts-page-title` recipe reserves 24px to the left of the title for a 16px Lucide
+`Hash`, using the existing accent and spacing tokens. The decorative icon has
+`aria-hidden="true"` and `jts-page-title-mark`; it stays beside the first line
+without animation or an underline. Standard and campaign headers hang the mark
+in the page gutter on desktop (`lg:-ms-6`); narrow layouts and profile cards
+keep it inside the title block. Decorative eyebrows and the six-dot title mark
+remain retired.
+
+Navigation uses icons and labels with an active fill and tinted icon. The
+`sidebar-accent` role retains the former `sidebar-active-index` colour values;
+the numeral-only role and numbered navigation have been removed. All consumers
+ship together in the SPA; no persisted preference changes.
+
+## Icons and attention
+
+Use the existing Lucide outline icons for field meaning: phone, email, location,
+dates, attendance, messages and reply time. Keep field icons at 14px beside
+visible sentence-case labels, in the label's muted tone. Omitted data leaves no
+icon, label or row. The organic two-piece S in `BrandMark` and the Sora wordmark
+carry the product identity; the historical form/chat and six-dot marks are
+retired. The open channel between the filled curves remains transparent.
+Use `BrandMark surface="strong"` on an inverse surface; colour classes from
+the old `currentColor` mark no longer recolour it. Geometry, exports and
+consumers: [brand contract](../../docs/frontend/components/brand.md).
+
+Cards use uniform, neutral borders. Attention is expressed with a visible label,
+an icon and the existing semantic soft fill, not a coloured left edge. Assistant
+cards group a tinted identity icon, bold name and compact icon badges above a
+separator. `Needs attention` is a danger-soft badge; ordinary state and control
+badges have quiet neutral outlines. Cards fit their own content height, and an
+empty field list adds no separator or space. Campaign attention counts use a labelled
+warning badge. Metric cards pair their existing toned value with a small icon
+tile; summary findings retain their per-row weight indicators and fills.
+Status meaning, thresholds and data availability remain owned by their current
+domain contracts. Colour or a glyph alone never carries the meaning.
 
 ## Shape, elevation and motion
 
@@ -132,6 +176,6 @@ The token implementation has one owner per concern:
 When changing a token, check the affected light/dark and palette combinations
 for readable contrast and preserve visible text beside status colour. Screen
 tests should verify user-visible behaviour instead of copying CSS or class
-strings. Relevant decisions are [ADR 0005](../../docs/decisions/0005-theming-and-dark-mode.md), [ADR 0011](../../docs/decisions/0011-display-typeface.md) and [ADR 0012](../../docs/decisions/0012-selectable-palettes.md).
+strings. Relevant decisions are [ADR 0005](../../docs/decisions/0005-theming-and-dark-mode.md), [ADR 0022](../../docs/decisions/0022-admin-visual-language.md) and [ADR 0012](../../docs/decisions/0012-selectable-palettes.md).
 
 For ownership and API/runtime rules, see [`AGENTS.md`](./AGENTS.md).

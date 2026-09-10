@@ -47,7 +47,6 @@ export function OverviewPage() {
   return (
     <div className="flex flex-col gap-6">
       <JtsPageHeader
-        eyebrow="Admin workspace"
         title="Operations control"
         description="A dinner is six strangers and a hundred small decisions. This is where the decisions get made."
         actions={
@@ -139,11 +138,7 @@ export function OverviewPage() {
             aria-label="Operational focus"
             className="grid gap-6 md:grid-cols-2"
           >
-            <FocusCard
-              kicker="Immediate event context"
-              title="Next dinner"
-              primary
-            >
+            <FocusCard kicker="Immediate event context" title="Next dinner">
               {nextDinner ? (
                 <div className="grid gap-5">
                   <div className="flex items-start justify-between gap-4">
@@ -161,7 +156,7 @@ export function OverviewPage() {
                     <Stamp tone="info">Scheduled</Stamp>
                   </div>
                   <div className="flex items-baseline justify-between gap-4">
-                    <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                    <span className="jts-overline text-ink-muted">
                       Attendees assigned
                     </span>
                     <strong className="text-sm font-bold tabular-nums text-ink">
@@ -208,9 +203,7 @@ export function OverviewPage() {
             className="grid gap-4 rounded-md border border-border bg-surface p-6 md:grid-cols-2"
           >
             <div>
-              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-muted">
-                Event stages
-              </p>
+              <p className="mb-2 jts-overline text-ink-muted">Event stages</p>
               <dl className="grid gap-2 text-sm">
                 {(["draft", "scheduled", "finished", "cancelled"] as const).map(
                   (status) => (
@@ -230,9 +223,7 @@ export function OverviewPage() {
               </dl>
             </div>
             <div>
-              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-muted">
-                Feedback loop
-              </p>
+              <p className="mb-2 jts-overline text-ink-muted">Feedback loop</p>
               <dl className="grid gap-2 text-sm">
                 <div className="flex items-baseline justify-between gap-4">
                   <dt className="text-ink-muted">Campaigns</dt>

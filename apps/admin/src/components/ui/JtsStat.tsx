@@ -4,22 +4,22 @@ import clsx from "clsx";
 export type JtsStatTone = "success" | "warning";
 
 export interface JtsStatProps {
-  /** Micro-caps label (the <dt>). */
+  /** Sentence-case label (the <dt>). */
   label: string;
   /** The big scannable figure (the <dd>). */
   value: string | number;
   /** Optional supporting line beneath the value. */
   detail?: string;
-  /** Toned marker + value + glyph; neutral (wine marker) when omitted. */
+  /** Toned value and icon tile; neutral when omitted. */
   tone?: JtsStatTone;
   /** Optional lucide glyph pinned to the top-right corner. */
   icon?: LucideIcon;
 }
 
-const markerByTone: Record<JtsStatTone | "default", string> = {
-  default: "border-l-primary",
-  success: "border-l-success",
-  warning: "border-l-warning",
+const iconByTone: Record<JtsStatTone | "default", string> = {
+  default: "bg-surface-sunken text-ink-muted",
+  success: "bg-success-soft text-success",
+  warning: "bg-warning-soft text-warning",
 };
 
 const toneText: Record<JtsStatTone | "default", string> = {
@@ -43,24 +43,19 @@ export function JtsStat({
   const key = tone ?? "default";
 
   return (
-    <div
-      className={clsx(
-        "relative grid min-w-0 rounded-md border border-border border-l-[3px] bg-surface p-4 sm:p-5",
-        markerByTone[key],
-      )}
-    >
+    <div className="relative grid min-w-0 rounded-md border border-border bg-surface p-4 sm:p-5">
       {Icon ? (
         <span
           aria-hidden="true"
           className={clsx(
-            "absolute right-4 top-4 sm:right-5 sm:top-5",
-            tone ? toneText[key] : "text-ink-subtle",
+            "absolute right-4 top-4 grid size-8 place-items-center rounded-md sm:right-5 sm:top-5",
+            iconByTone[key],
           )}
         >
           <Icon size="1.1rem" />
         </span>
       ) : null}
-      <dt className="mb-2 ml-0 mr-8 mt-0 text-[0.6875rem] font-bold uppercase tracking-wide text-ink-muted sm:mr-10 sm:text-xs">
+      <dt className="mb-2 ml-0 mr-10 mt-0 jts-overline text-ink-muted">
         {label}
       </dt>
       <dd

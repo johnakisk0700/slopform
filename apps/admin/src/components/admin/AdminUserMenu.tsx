@@ -139,7 +139,7 @@ function AdminUserMenuContent({
           className ? ` ${className}` : ""
         }`}
       >
-        {/* Rounded square: the circle motif stays reserved for the brand mark. */}
+        {/* Rounded-square avatars identify people throughout the workspace. */}
         <Avatar
           color="accent"
           variant="soft"
@@ -181,10 +181,7 @@ function AdminUserMenuContent({
           <Separator />
 
           <div className="grid gap-2">
-            <span
-              id={themeLabelId}
-              className="text-xs font-bold tracking-caps text-ink-muted uppercase"
-            >
+            <span id={themeLabelId} className="jts-overline text-ink-muted">
               Appearance
             </span>
             <ToggleButtonGroup
@@ -211,10 +208,7 @@ function AdminUserMenuContent({
           </div>
 
           <div className="grid gap-2">
-            <span
-              id={paletteLabelId}
-              className="text-xs font-bold tracking-caps text-ink-muted uppercase"
-            >
+            <span id={paletteLabelId} className="jts-overline text-ink-muted">
               Theme
             </span>
             {/* A 2×3 grid rather than a row: six names in a 20rem popover

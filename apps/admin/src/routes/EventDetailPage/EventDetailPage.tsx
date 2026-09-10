@@ -65,7 +65,7 @@ export function EventDetailPage() {
     <div className="flex flex-col gap-6">
       <JtsPageHeader
         back={BACK_TO_EVENTS}
-        eyebrow="Operations"
+
         title={event.title}
         description="Who actually showed up is the one thing only you know. Correct it, then finish the event — everything after this reads from that list."
       />

@@ -18,8 +18,7 @@ interface ParticipantIdentityProps {
  * go by, and the email underneath as the thing that actually distinguishes two
  * people called Maria.
  *
- * The rounded square is deliberate — the circle motif stays reserved for the
- * brand mark, as on the participant profile this borrows its shape from.
+ * Uses the same rounded-square avatar as the participant profile.
  */
 export function ParticipantIdentity({
   preferredName,

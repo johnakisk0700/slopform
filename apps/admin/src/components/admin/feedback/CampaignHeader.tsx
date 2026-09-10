@@ -2,6 +2,7 @@ import { buttonVariants } from "@heroui/react";
 import {
   BarChart3,
   FlaskConical,
+  Hash,
   PauseCircle,
   PlayCircle,
   SquareX,
@@ -84,46 +85,8 @@ export function CampaignHeader({
         <JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>
       </div>
 
-      {/* No `jts-title-mark`. The six dots are the app signing a page: they sit
-          under «Events», «Participants», «Feedback campaigns» — names the
-          product chose for its own screens. This h1 is not one of those. It is
-          `campaign.eventTitle`, a dinner someone typed, and the mark under it
-          read as the app claiming authorship of the operator's data — a brand
-          flourish decorating a value.
-
-          Losing it also buys the thing this screen wants most: the mark cost
-          11px between the name and the context band directly under it, and
-          without it the dinner's name and the facts about that dinner close up
-          into one block. The campaign gets easier to see by having less
-          attached to it, not more.
-
-          And `font-sans`, not the `font-display` every other h1 wears. The two
-          faces already mean something in this admin: Commissioner is the
-          product's voice — it sets the names the product chose for its own
-          screens — and Manrope sets everything a person typed. On this screen
-          that is not a fine distinction, it is most of what is on it: the
-          participants in the list, the messages in the thread, the venue's
-          name. All Manrope. The campaign's title is the same kind of thing as
-          all of it, so it is set in the same face, and the difference from a
-          page title is legible before a word of it is read.
-
-          (`font-brand`/Sora, the third face, is not a candidate: it is the
-          wordmark's alone and carries no Greek — and these titles are Greek.)
-
-          `tracking-tight` because Manrope runs wider than Commissioner at
-          extrabold, and the line should still read as one name.
-
-          `pl-[3px]` is optical, not structural, which is why it is off the
-          spacing scale. The h1's box already sits flush with the column —
-          same x as the context band's border below — but Manrope's extrabold
-          Δ and Τ carry ~0.2–0.4px of left sidebearing where H, D or F carry
-          ~1.5px, and these titles are Greek dinner names that mostly open on
-          exactly those diagonals. Flush at 22px, that ink reads as leaning
-          out past the border under it. The first pixel seats the diagonal
-          where the square letters already sit; the other two settle the name
-          just inside the column edge. 4px was tried and overshot — it stops
-          reading as an aligned title and starts reading as an indent. */}
-      <h1 className="min-w-0 truncate pl-[3px] font-sans text-[1.375rem] font-extrabold tracking-tight sm:col-span-2 sm:row-start-2">
+      <h1 className="jts-page-title min-w-0 truncate font-sans text-[1.375rem] font-bold tracking-tight sm:col-span-2 sm:row-start-2 lg:-ms-6">
+        <Hash aria-hidden="true" className="jts-page-title-mark" />
         {campaign?.eventTitle ?? "Feedback conversations"}
       </h1>
 

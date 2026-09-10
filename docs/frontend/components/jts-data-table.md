@@ -23,7 +23,7 @@ Generic over row type `T`.
 | `error`              | `string \| null`            | Blocking error (no rows) or stale-data warning (rows present). |
 | `emptyTitle`         | `string`                    | Ready-but-empty heading. Default `"Nothing to show yet"`.      |
 | `emptyDescription`   | `string`                    | Ready-but-empty copy.                                          |
-| `emptyIcon`          | `ReactNode`                 | Optional empty mark; defaults to CSS six-dot motif.            |
+| `emptyIcon`          | `ReactNode`                 | Optional empty mark; defaults to a Lucide table icon.          |
 | `paginator`          | `boolean`                   | Client pagination; hidden while unnecessary.                   |
 | `pageSize`           | `number`                    | Initial page size. Default `10`.                               |
 | `rowsPerPageOptions` | `number[]`                  | Footer page-size choices. Default `[10, 25, 50]`.              |
@@ -61,7 +61,7 @@ flowchart TD
   E -->|"error, no rows"| Full["Blocking error, role=alert"]
   E -->|"error, rows present"| Warn["Inline warning banner + rows"]
   E -->|No error| R{"rows?"}
-  R -->|Empty| Empty["emptyIcon or brand-mark + emptyActions"]
+  R -->|Empty| Empty["emptyIcon or table icon + emptyActions"]
   R -->|Populated| Table["Table + optional paginator footer"]
 ```
 

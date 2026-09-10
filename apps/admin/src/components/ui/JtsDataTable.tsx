@@ -12,7 +12,7 @@ import {
   type RowData,
   type SortingState,
 } from "@tanstack/react-table";
-import { ChevronLeft, ChevronRight, TriangleAlert } from "lucide-react";
+import { ChevronLeft, ChevronRight, Table2, TriangleAlert } from "lucide-react";
 import clsx from "clsx";
 
 /**
@@ -48,8 +48,8 @@ export interface JtsDataTableProps<T> {
   /** Ready-but-empty supporting copy. */
   emptyDescription?: string;
   /**
-   * Optional decorative mark for the empty state. Defaults to the six-dot
-   * brand mark; pages may pass a muted lucide glyph for domain character.
+   * Optional decorative mark for the empty state. Defaults to a table icon;
+   * pages may pass a muted lucide glyph for domain character.
    */
   emptyIcon?: ReactNode;
   /** Enables client-side pagination, hidden while it is unnecessary. */
@@ -298,7 +298,7 @@ export function JtsDataTable<T>({
                           ? { textValue: rawHeader }
                           : {})}
                         className={clsx(
-                          "rounded-none bg-surface-sunken px-4 py-3 align-middle text-[0.7rem] font-extrabold tracking-[0.08em] whitespace-nowrap uppercase",
+                          "rounded-none bg-surface-sunken px-4 py-3 align-middle jts-overline whitespace-nowrap",
                           alignClass(align),
                           sorted ? "text-primary" : "text-ink-muted",
                         )}
@@ -345,9 +345,9 @@ export function JtsDataTable<T>({
                     ) : (
                       <div className="grid min-h-40 place-content-center justify-items-center gap-2 p-8 text-center text-ink-muted">
                         {emptyIcon ?? (
-                          <span
+                          <Table2
                             aria-hidden="true"
-                            className="brand-mark size-9 text-primary"
+                            className="size-9 text-ink-subtle"
                           />
                         )}
                         <strong className="text-ink">{emptyTitle}</strong>
@@ -392,9 +392,7 @@ export function JtsDataTable<T>({
           {showFooter ? (
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3">
               <div className="flex items-center gap-2">
-                <span className="text-[0.7rem] font-extrabold tracking-[0.08em] text-ink-muted uppercase">
-                  Rows
-                </span>
+                <span className="jts-overline text-ink-muted">Rows</span>
                 <Select
                   aria-label="Rows per page"
                   selectedKey={pagination.pageSize}

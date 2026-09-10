@@ -1,4 +1,4 @@
-import { ToggleButton, ToggleButtonGroup } from "@heroui/react";
+import { Tabs } from "@heroui/react";
 import { clsx } from "clsx";
 import { Hourglass, Pause, SendHorizontal } from "lucide-react";
 
@@ -46,7 +46,7 @@ export function FeedbackOutboxPage() {
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <JtsPageHeader
           back={{ to: "/admin/feedback", label: "Back to campaigns" }}
-          eyebrow="Post-event feedback"
+
           title="Outbound queue"
           description="Every word this system has put in front of a participant. What is still queued is either unresolved or deliberately held — and how long it has waited is the number that matters."
         />
@@ -79,144 +79,137 @@ export function FeedbackOutboxPage() {
         </dl>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ToggleButtonGroup
-          aria-label="History or queue"
-          selectionMode="single"
-          disallowEmptySelection
-          isDetached
-          selectedKeys={[view]}
-          onSelectionChange={(keys) => {
-            const [next] = keys;
-            if (next === "history" || next === "queue") {
-              selectView(next);
-            }
-          }}
-        >
-          <ToggleButton
-            id="history"
-            size="sm"
-            className="justify-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm font-semibold text-ink data-[selected]:border-primary-border data-[selected]:bg-primary-soft data-[selected]:text-primary"
-          >
-            History
-          </ToggleButton>
-          <ToggleButton
-            id="queue"
-            size="sm"
-            className="justify-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm font-semibold text-ink data-[selected]:border-primary-border data-[selected]:bg-primary-soft data-[selected]:text-primary"
-          >
-            Queue
-            {/* The backlog follows its own tab, so leaving the queue does not
-                mean losing sight of it. Zero is drawn quietly rather than
-                hidden: a badge that vanishes teaches nothing, while «0»
-                states that the question was asked and answered. */}
-            <span
-              className={clsx(
-                "rounded-full px-1.5 py-px text-xs font-bold tabular-nums",
-                (summary?.total ?? 0) === 0
-                  ? "bg-surface-sunken text-ink-subtle"
-                  : "bg-warning-soft text-warning",
-              )}
-            >
-              <span aria-hidden="true">{summary?.total ?? 0}</span>
-              <span className="sr-only">
-                {(summary?.total ?? 0) === 1
-                  ? "1 message"
-                  : `${summary?.total ?? 0} messages`}{" "}
-                waiting
-              </span>
-            </span>
-          </ToggleButton>
-        </ToggleButtonGroup>
-
-        {view === "history" ? (
-          <OutboxHistoryToolbar
-            range={range}
-            status={status ?? "any"}
-            onRangeChange={(next) =>
-              changeFilter("range", next === "all" ? null : next)
-            }
-            onStatusChange={(next) =>
-              changeFilter("status", next === "any" ? null : next)
-            }
-          />
-        ) : null}
-      </div>
-
-      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
-        {view === "queue" ? (
-          <OutboxQueueList
-            items={queueItems}
-            selectedId={selectedId}
-            onSelect={selectMessage}
-            loading={queueQuery.isPending}
-            error={
-              queueQuery.isError
-                ? apiErrorMessage(
-                    queueQuery.error,
-                    "Failed to load the outbound queue.",
-                  )
-                : null
-            }
-            truncated={queueQuery.data?.truncated ?? false}
-            total={summary?.total ?? 0}
-            isRefreshing={queueQuery.isFetching}
-          />
-        ) : (
-          <OutboxHistoryList
-            items={historyItems}
-            selectedId={selectedId}
-            onSelect={selectMessage}
-            loading={historyQuery.isPending}
-            error={
-              historyQuery.isError
-                ? apiErrorMessage(
-                    historyQuery.error,
-                    "Failed to load the outbound history.",
-                  )
-                : null
-            }
-            total={historyQuery.data?.total ?? 0}
-            isRefreshing={historyQuery.isFetching}
-            atNewest={atNewest}
-            hasOlder={nextCursor !== null}
-            onOlder={() => {
-              if (nextCursor !== null) {
-                setCursors((stack) => [...stack, nextCursor]);
+      <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Tabs
+            selectedKey={view}
+            onSelectionChange={(key) => {
+              if (key === "history" || key === "queue") {
+                selectView(key);
               }
             }}
-            onNewer={() => setCursors((stack) => stack.slice(0, -1))}
-            onNewest={() => setCursors([])}
-          />
-        )}
+            className="w-max"
+          >
+            <Tabs.ListContainer>
+              <Tabs.List aria-label="History or queue">
+                <Tabs.Tab id="history">
+                  History
+                  <Tabs.Indicator />
+                </Tabs.Tab>
+                <Tabs.Tab id="queue" className="gap-2">
+                  Queue
+                  {/* Zero stays visible: a badge that vanishes teaches nothing. */}
+                  <span
+                    className={clsx(
+                      "rounded-full px-1.5 py-px text-xs font-bold tabular-nums",
+                      (summary?.total ?? 0) === 0
+                        ? "bg-surface-sunken text-ink-subtle"
+                        : "bg-warning-soft text-warning",
+                    )}
+                  >
+                    <span aria-hidden="true">{summary?.total ?? 0}</span>
+                    <span className="sr-only">
+                      {(summary?.total ?? 0) === 1
+                        ? "1 message"
+                        : `${summary?.total ?? 0} messages`}{" "}
+                      waiting
+                    </span>
+                  </span>
+                  <Tabs.Indicator />
+                </Tabs.Tab>
+              </Tabs.List>
+            </Tabs.ListContainer>
+          </Tabs>
 
-        <div className="flex min-h-0 flex-col">
-          {messageQuery.data && selectedId !== null ? (
-            <OutboxMessageDetails
-              message={messageQuery.data}
-              isRefreshing={messageQuery.isFetching}
+          {view === "history" ? (
+            <OutboxHistoryToolbar
+              range={range}
+              status={status ?? "any"}
+              onRangeChange={(next) =>
+                changeFilter("range", next === "all" ? null : next)
+              }
+              onStatusChange={(next) =>
+                changeFilter("status", next === "any" ? null : next)
+              }
             />
-          ) : messageQuery.isError ? (
-            <p role="alert" className="text-sm text-danger">
-              {apiErrorMessage(
-                messageQuery.error,
-                "Failed to load this message.",
-              )}
-            </p>
-          ) : messageQuery.isPending && selectedId !== null ? (
-            <p role="status" className="text-sm text-ink-muted">
-              Reading this message&rsquo;s dispatch record…
-            </p>
+          ) : null}
+        </div>
+
+        <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
+          {view === "queue" ? (
+            <OutboxQueueList
+              items={queueItems}
+              selectedId={selectedId}
+              onSelect={selectMessage}
+              loading={queueQuery.isPending}
+              error={
+                queueQuery.isError
+                  ? apiErrorMessage(
+                      queueQuery.error,
+                      "Failed to load the outbound queue.",
+                    )
+                  : null
+              }
+              truncated={queueQuery.data?.truncated ?? false}
+              total={summary?.total ?? 0}
+              isRefreshing={queueQuery.isFetching}
+            />
           ) : (
-            <OutboxMessageDetailsEmpty />
+            <OutboxHistoryList
+              items={historyItems}
+              selectedId={selectedId}
+              onSelect={selectMessage}
+              loading={historyQuery.isPending}
+              error={
+                historyQuery.isError
+                  ? apiErrorMessage(
+                      historyQuery.error,
+                      "Failed to load the outbound history.",
+                    )
+                  : null
+              }
+              total={historyQuery.data?.total ?? 0}
+              isRefreshing={historyQuery.isFetching}
+              atNewest={atNewest}
+              hasOlder={nextCursor !== null}
+              onOlder={() => {
+                if (nextCursor !== null) {
+                  setCursors((stack) => [...stack, nextCursor]);
+                }
+              }}
+              onNewer={() => setCursors((stack) => stack.slice(0, -1))}
+              onNewest={() => setCursors([])}
+            />
           )}
+
+          <div className="flex min-h-0 flex-col">
+            {messageQuery.data && selectedId !== null ? (
+              <OutboxMessageDetails
+                message={messageQuery.data}
+                isRefreshing={messageQuery.isFetching}
+              />
+            ) : messageQuery.isError ? (
+              <p role="alert" className="text-sm text-danger">
+                {apiErrorMessage(
+                  messageQuery.error,
+                  "Failed to load this message.",
+                )}
+              </p>
+            ) : messageQuery.isPending && selectedId !== null ? (
+              <p role="status" className="text-sm text-ink-muted">
+                Reading this message&rsquo;s dispatch record…
+              </p>
+            ) : (
+              <OutboxMessageDetailsEmpty />
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/** One figure of the queue strip: micro-caps label, then glyph + number. */
+/** One figure of the queue strip: sentence-case label, then glyph + number. */
 function QueueFigure({
   icon: Icon,
   label,

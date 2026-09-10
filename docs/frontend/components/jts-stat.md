@@ -3,7 +3,7 @@
 One operational metric as a bordered card **inside a page-owned, labelled
 `dl`**. Emits `dt` label, big `dd` value, optional `dd` detail; resets margins
 so the list does not indent them. Page owns calculation, formatting and loading;
-card owns `dt`/`dd` order, 3px marker and tone accents.
+card owns `dt`/`dd` order, icon tile and tone accents.
 
 Below `sm`: tighter padding/label/value/icon so two metrics sit side by side;
 desktop density resumes at `sm`.
@@ -12,17 +12,17 @@ Source: [`JtsStat.tsx`](../../../apps/admin/src/components/ui/JtsStat.tsx)
 
 ## Contract
 
-| Prop     | Type                      | Contract                                                      |
-| -------- | ------------------------- | ------------------------------------------------------------- |
-| `label`  | `string`                  | Required. Micro-caps `dt`.                                    |
-| `value`  | `string \| number`        | Required. Big tabular `dd` figure.                            |
-| `detail` | `string?`                 | Optional explanatory `dd` beneath the value.                  |
-| `tone`   | `"success" \| "warning"?` | Toned left marker, value and glyph; wine marker when omitted. |
-| `icon`   | `LucideIcon?`             | Decorative top-right glyph, `aria-hidden`.                    |
+| Prop     | Type                      | Contract                                                       |
+| -------- | ------------------------- | -------------------------------------------------------------- |
+| `label`  | `string`                  | Required. Sentence-case `dt`.                                  |
+| `value`  | `string \| number`        | Required. Big tabular `dd` figure.                             |
+| `detail` | `string?`                 | Optional explanatory `dd` beneath the value.                   |
+| `tone`   | `"success" \| "warning"?` | Toned value and icon tile; neutral when omitted.               |
+| `icon`   | `LucideIcon?`             | Decorative top-right glyph in a 32px soft tile, `aria-hidden`. |
 
-`tone` selects the vertical 3px `border-l` marker: wine default,
-`border-l-success` / `border-l-warning` when toned (value + icon match). Neutral
-icon: `text-ink-subtle`.
+`tone` selects success/warning text and the corresponding soft icon background.
+The neutral tile uses `bg-surface-sunken` / `text-ink-muted`. All cards retain
+the same neutral border; the visible label and detail explain the metric.
 
 ## Invariants
 

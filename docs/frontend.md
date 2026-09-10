@@ -227,9 +227,12 @@ not persist.
 | `apps/admin/src/styles/globals.css`     | HeroUI overrides, `@theme inline`, base layer, sanctioned motifs  |
 | Markup                                  | Semantic utilities only — no raw hex, no default Tailwind palette |
 
-`globals.css` header documents the layering. Sanctioned classes: `.skip-link`,
-`.brand-mark`, `.status-dot`. Fonts / wordmark: [ADR 0011](decisions/0011-display-typeface.md).
-Logo: `BrandLockup` / `BrandMark`; `.brand-mark` is decorative.
+`globals.css` header documents the layering. Shared classes: `.skip-link`,
+`.status-dot`, `jts-overline` metadata labels. Fonts and attention patterns:
+[ADR 0022](decisions/0022-admin-visual-language.md).
+Logo: `BrandLockup` / `BrandMark` share the two-piece S across desktop/mobile
+navigation, sign-in, auth states and errors. Geometry, surface colours and
+standalone exports: [brand contract](frontend/components/brand.md).
 
 Dark mode: `dark` on `<html>` (pre-paint in `index.html`, then `useTheme.ts`).
 Motion: 200ms opacity/8px-rise page entrance (`motion/react`, route-surface key,

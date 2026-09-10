@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { SECTIONS, type SectionSpec } from "./cookbookSections";
+import { type SectionSpec } from "./cookbookSections";
 
 export function Section({
   spec,
@@ -10,9 +10,6 @@ export function Section({
   children: ReactNode;
 }) {
   const { Icon } = spec;
-  // The numeral is the section's place in the reading order, read from the one
-  // list, so a reorder can never leave a heading claiming a position it lost.
-  const numeral = String(SECTIONS.indexOf(spec) + 1).padStart(2, "0");
 
   return (
     // `scroll-mt` clears the small-screen sticky header, which would otherwise
@@ -23,7 +20,6 @@ export function Section({
       className="grid scroll-mt-24 gap-3"
     >
       <div className="border-b border-border pb-2">
-        <p className="jts-overline text-ink-subtle">{numeral} · Cookbook</p>
         <h2
           id={`${spec.id}-heading`}
           className="flex items-center gap-2 text-[1.05rem] font-bold tracking-tight text-ink"

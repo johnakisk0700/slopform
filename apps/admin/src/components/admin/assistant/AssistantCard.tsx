@@ -1,10 +1,30 @@
-import { CalendarDays, MessagesSquare, UserRound } from "lucide-react";
+import {
+  CalendarDays,
+  CalendarClock,
+  CircleAlert,
+  CircleCheck,
+  CircleDot,
+  CircleX,
+  Clock,
+  ListChecks,
+  Mail,
+  MapPin,
+  MessagesSquare,
+  Phone,
+  PencilLine,
+  UserCheck,
+  UserRound,
+  UserRoundX,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 import * as z from "zod";
 
 import {
   EVENT_STATUSES,
   eventStatusColor,
   eventStatusLabel,
+  type EventStatus,
   type EventStatusColor,
 } from "../../../features/event/eventStatus";
 
@@ -94,6 +114,13 @@ const dateFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Athens",
 });
 
+const eventStatusIcon: Record<EventStatus, LucideIcon> = {
+  draft: PencilLine,
+  scheduled: CalendarClock,
+  finished: CircleCheck,
+  cancelled: CircleX,
+};
+
 /** Renders a model-authored fenced `jts` card, or the raw block if it is not one. */
 export function AssistantCard({ source }: { source: string }) {
   const card = parseCard(source);
@@ -114,32 +141,32 @@ function ConversationCardView({ card }: { card: ConversationCard }) {
 
   return (
     <article className="assistant-card">
-      <header className="assistant-card__header">
-        <MessagesSquare
-          aria-hidden
-          className="size-4 shrink-0 text-ink-muted"
-        />
-        <h4 className="assistant-card__title">{card.respondent}</h4>
-        {/*
-         * «Needs a person» leads, because it is the only thing on this card
-         * anybody has to act on. It is shown only when the assistant said so
-         * either way: absent means unstated, not calm.
-         */}
+      <CardHeader icon={MessagesSquare} title={card.respondent}>
+        {/* An unstated attention flag makes no claim about whether help is needed. */}
         {card.needsAttention ? (
-          <CardChip color="danger">Needs a person</CardChip>
+          <CardChip color="danger" icon={CircleAlert}>
+            Needs attention
+          </CardChip>
         ) : null}
         {card.state ? (
-          <CardChip color={card.state === "open" ? "accent" : "default"}>
+          <CardChip
+            color="default"
+            icon={card.state === "open" ? CircleDot : CircleCheck}
+          >
             {card.state === "open" ? "Open" : "Closed"}
           </CardChip>
         ) : null}
         {card.control === "human" ? (
-          <CardChip color="accent">Staff replying</CardChip>
+          <CardChip color="default" icon={UserRound}>
+            Staff replying
+          </CardChip>
         ) : null}
-      </header>
+      </CardHeader>
       <dl className="assistant-card__fields">
-        <Field label="Campaign">{card.campaign}</Field>
-        <Field label="Answered">
+        <Field label="Campaign" icon={CalendarDays}>
+          {card.campaign}
+        </Field>
+        <Field label="Answered" icon={ListChecks}>
           {card.answered === undefined ? null : (
             <span className="tabular-nums">
               {card.goalCount === undefined
@@ -148,12 +175,12 @@ function ConversationCardView({ card }: { card: ConversationCard }) {
             </span>
           )}
         </Field>
-        <Field label="Messages">
+        <Field label="Messages" icon={MessagesSquare}>
           {card.messageCount === undefined ? null : (
             <span className="tabular-nums">{card.messageCount}</span>
           )}
         </Field>
-        <Field label="Last reply">
+        <Field label="Last reply" icon={Clock}>
           {lastMessageAt && !Number.isNaN(lastMessageAt.valueOf())
             ? dateFormat.format(lastMessageAt)
             : null}
@@ -166,31 +193,36 @@ function ConversationCardView({ card }: { card: ConversationCard }) {
 function ProfileCardView({ card }: { card: ProfileCard }) {
   return (
     <article className="assistant-card">
-      <header className="assistant-card__header">
-        <UserRound aria-hidden className="size-4 shrink-0 text-ink-muted" />
-        <h4 className="assistant-card__title">{card.name}</h4>
+      <CardHeader icon={UserRound} title={card.name}>
         {card.feedbackOptIn === undefined ? null : (
-          <CardChip color={card.feedbackOptIn ? "success" : "default"}>
+          <CardChip
+            color={card.feedbackOptIn ? "success" : "default"}
+            icon={card.feedbackOptIn ? UserCheck : UserRoundX}
+          >
             {card.feedbackOptIn ? "Feedback opt-in" : "No feedback opt-in"}
           </CardChip>
         )}
-      </header>
+      </CardHeader>
       <dl className="assistant-card__fields">
-        <Field label="Phone">
+        <Field label="Phone" icon={Phone}>
           {card.phone ? (
             <a className="font-mono" href={`tel:${card.phone}`}>
               {card.phone}
             </a>
           ) : null}
         </Field>
-        <Field label="Email">
+        <Field label="Email" icon={Mail}>
           {card.email ? (
             <a href={`mailto:${card.email}`}>{card.email}</a>
           ) : null}
         </Field>
-        <Field label="Neighborhood">{card.neighborhood}</Field>
-        <Field label="Age band">{card.ageBand}</Field>
-        <Field label="Events">
+        <Field label="Neighborhood" icon={MapPin}>
+          {card.neighborhood}
+        </Field>
+        <Field label="Age band" icon={UserRound}>
+          {card.ageBand}
+        </Field>
+        <Field label="Events" icon={CalendarDays}>
           {card.eventCount === undefined ? null : (
             <span className="tabular-nums">{card.eventCount}</span>
           )}
@@ -205,38 +237,61 @@ function EventCardView({ card }: { card: EventCard }) {
 
   return (
     <article className="assistant-card">
-      <header className="assistant-card__header">
-        <CalendarDays aria-hidden className="size-4 shrink-0 text-ink-muted" />
-        <h4 className="assistant-card__title">{card.title}</h4>
+      <CardHeader icon={CalendarDays} title={card.title}>
         {card.status ? (
-          <CardChip color={eventStatusColor(card.status)}>
+          <CardChip
+            color={eventStatusColor(card.status)}
+            icon={eventStatusIcon[card.status]}
+          >
             {eventStatusLabel(card.status)}
           </CardChip>
         ) : null}
-      </header>
+      </CardHeader>
       <dl className="assistant-card__fields">
-        <Field label="Starts">
+        <Field label="Starts" icon={CalendarDays}>
           {startsAt && !Number.isNaN(startsAt.valueOf())
             ? dateFormat.format(startsAt)
             : null}
         </Field>
-        <Field label="Venue">
+        <Field label="Venue" icon={MapPin}>
           {card.venue
             ? [card.venue, card.area].filter(Boolean).join(" · ")
             : null}
         </Field>
-        <Field label="Booked">
+        <Field label="Booked" icon={UsersRound}>
           {card.attendeeCount === undefined ? null : (
             <span className="tabular-nums">{card.attendeeCount}</span>
           )}
         </Field>
-        <Field label="Present">
+        <Field label="Present" icon={UserCheck}>
           {card.presentCount === undefined ? null : (
             <span className="tabular-nums">{card.presentCount}</span>
           )}
         </Field>
       </dl>
     </article>
+  );
+}
+
+function CardHeader({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <header className="assistant-card__header">
+      <span className="assistant-card__identity-icon">
+        <Icon aria-hidden className="size-4" />
+      </span>
+      <div className="assistant-card__identity">
+        <h4 className="assistant-card__title">{title}</h4>
+        <div className="assistant-card__status">{children}</div>
+      </div>
+    </header>
   );
 }
 
@@ -252,13 +307,16 @@ function EventCardView({ card }: { card: EventCard }) {
  */
 function CardChip({
   color,
+  icon: Icon,
   children,
 }: {
   color: EventStatusColor;
+  icon: LucideIcon;
   children: React.ReactNode;
 }) {
   return (
     <span className={`assistant-card__chip assistant-card__chip--${color}`}>
+      <Icon aria-hidden className="size-3 shrink-0" />
       {children}
     </span>
   );
@@ -267,16 +325,21 @@ function CardChip({
 /** A row that removes itself when the assistant had nothing to put in it. */
 function Field({
   label,
+  icon: Icon,
   children,
 }: {
   label: string;
+  icon: LucideIcon;
   children?: React.ReactNode;
 }) {
   if (children === null || children === undefined) return null;
 
   return (
     <div className="assistant-card__field">
-      <dt>{label}</dt>
+      <dt>
+        <Icon aria-hidden className="size-3.5 shrink-0" />
+        {label}
+      </dt>
       <dd>{children}</dd>
     </div>
   );

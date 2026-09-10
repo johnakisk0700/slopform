@@ -1,5 +1,6 @@
 import { Button } from "@heroui/react";
 import {
+  ArrowUpRight,
   MessageSquarePlus,
   PencilLine,
   RefreshCw,
@@ -156,23 +157,28 @@ export function AssistantConversation({
         {messages.length === 0 && phase === "idle" && !failureMessage ? (
           <div className="grid min-h-[20rem] content-center justify-items-start gap-4 py-8">
             <div>
-              <p className="text-xs font-extrabold uppercase tracking-caps text-primary">
-                A clear page
-              </p>
-              <h2 className="mt-1 text-xl font-extrabold text-ink">
+              <MessageSquarePlus
+                aria-hidden="true"
+                className="mb-2 size-6 text-primary"
+              />
+              <h2 className="mt-1 text-xl font-bold text-ink">
                 What should we work through?
               </h2>
             </div>
             <div className="grid max-w-xl gap-1">
               {STARTERS.map((starter) => (
-                <button
+                <Button
                   key={starter}
-                  type="button"
-                  onClick={() => onStarter(starter)}
-                  className="border-l-2 border-border px-3 py-1.5 text-left text-sm text-ink-muted transition-colors hover:border-primary hover:text-ink"
+                  variant="ghost"
+                  onPress={() => onStarter(starter)}
+                  className="h-auto items-start justify-start gap-2 px-3 py-1.5 text-left text-sm font-normal whitespace-normal text-ink-muted hover:text-ink"
                 >
-                  {starter.trim()}
-                </button>
+                  <ArrowUpRight
+                    aria-hidden="true"
+                    className="mt-0.5 size-4 shrink-0 text-primary"
+                  />
+                  <span>{starter.trim()}</span>
+                </Button>
               ))}
             </div>
           </div>

@@ -140,7 +140,7 @@ export function AdminShell() {
                         tagline="Admin workspace"
                         taglineClassName="text-ink-muted"
                         wordmark={
-                          <Drawer.Heading className="font-display text-[1.3rem] leading-none font-extrabold tracking-tight">
+                          <Drawer.Heading className="font-brand text-[1.3rem] leading-none font-extrabold tracking-tight">
                             Slopform
                           </Drawer.Heading>
                         }
@@ -161,10 +161,11 @@ export function AdminShell() {
               </Drawer.Backdrop>
             </Drawer>
 
-            <div>
-              <p className="jts-overline text-ink-muted">Slopform</p>
-              <strong className="text-sm font-bold">Control center</strong>
-            </div>
+            <BrandLockup
+              to="/admin"
+              className="text-ink"
+              wordmarkClassName="text-lg"
+            />
           </div>
 
           <AdminUserMenu />

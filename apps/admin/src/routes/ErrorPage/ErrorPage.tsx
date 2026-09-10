@@ -42,9 +42,7 @@ export function ErrorPage() {
         </div>
 
         <div className="relative z-10">
-          <p className="mb-3 text-xs font-extrabold uppercase tracking-caps text-primary">
-            Unknown route
-          </p>
+          <p className="mb-3 jts-overline text-primary">Unknown route</p>
           <h1 className="mb-4 max-w-[14ch] font-display text-[length:var(--jts-text-2xl)] font-extrabold tracking-tighter">
             This admin page does not exist.
           </h1>

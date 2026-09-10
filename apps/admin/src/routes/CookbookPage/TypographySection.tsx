@@ -8,7 +8,7 @@ export function TypographySection() {
     <Section spec={TYPE_SECTION}>
       <Specimen
         label="Scale"
-        note="Display samples use Commissioner; UI/body stays Manrope. Both carry Latin and Greek so either language reads as the same page."
+        note="Headings and UI share Manrope. Sora remains exclusive to the wordmark."
         className="grid gap-3"
       >
         {TYPE_STEPS.map((step) => (
@@ -48,7 +48,7 @@ export function TypographySection() {
           ))}
         </Specimen>
 
-        <Specimen label="Tracking & the overline recipe" className="grid gap-2">
+        <Specimen label="Tracking & metadata labels" className="grid gap-2">
           <p className="text-sm tracking-tighter text-ink">
             tracking-tighter · Δείπνο στο Κολωνάκι
           </p>

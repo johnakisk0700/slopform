@@ -23,9 +23,6 @@ importers:
       '@clerk/react':
         specifier: 6.12.6
         version: 6.12.6(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@fontsource-variable/commissioner':
-        specifier: 5.2.10
-        version: 5.2.10
       '@fontsource-variable/manrope':
         specifier: 5.3.0
         version: 5.3.0
@@ -1028,9 +1025,6 @@ packages:
   '@eslint/plugin-kit@0.7.2':
     resolution: {integrity: sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
-
-  '@fontsource-variable/commissioner@5.2.10':
-    resolution: {integrity: sha512-I2OzXSgj2rQdhdysZEvcH2zmyO/dmMviSR6tWCMTwFXimtKJctadlmfoF1Pm9w/kSAe3fo9MhTZwppJE0/Xnmw==}
 
   '@fontsource-variable/manrope@5.3.0':
     resolution: {integrity: sha512-6D5dgokHsWDDMtmXHznKa0hK229NN+1a4BLPmUCLqcO1Pw5EEhWY5RFt0AcXnVRAljFFPfRtLkJePQj6LSsV6g==}
@@ -5715,8 +5709,6 @@ snapshots:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
-
-  '@fontsource-variable/commissioner@5.2.10': {}
 
   '@fontsource-variable/manrope@5.3.0': {}
 

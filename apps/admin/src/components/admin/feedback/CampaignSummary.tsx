@@ -421,20 +421,20 @@ function TintedFindingCard({
   empty: string;
   tone: "success" | "danger";
 }) {
-  // Quiet surface + 3px left marker (campaign-card motif) — not a status slab.
-  // Intensity lives on each row via weight, not the whole card.
-  const marker =
+  // The icon tile names the category; each row retains its own finding weight.
+  const iconTone =
     tone === "success"
-      ? "border-l-[3px] border-l-success"
-      : "border-l-[3px] border-l-danger";
-  const iconTone = tone === "success" ? "text-success" : "text-danger";
+      ? "bg-success-soft text-success"
+      : "bg-danger-soft text-danger";
 
   return (
-    <section
-      className={`min-w-0 rounded-lg border border-border bg-surface px-4 py-4 ${marker}`}
-    >
+    <section className="min-w-0 rounded-lg border border-border bg-surface px-4 py-4">
       <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
-        <Icon aria-hidden="true" className={`size-4 shrink-0 ${iconTone}`} />
+        <span
+          className={`grid size-8 shrink-0 place-items-center rounded-md ${iconTone}`}
+        >
+          <Icon aria-hidden="true" className="size-4" />
+        </span>
         {title}
       </h4>
       {items.length === 0 ? (

@@ -7,13 +7,13 @@ Never wrap a HeroUI component just to rename its props.
 
 ## Shared UI (`src/components/ui/`)
 
-| Component              | Contract                                         | Owns                                                                                |
-| ---------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `JtsPageHeader.tsx`    | [`jts-page-header.md`](jts-page-header.md)       | One route's `h1` with the six-dot mark, back link, eyebrow, description and actions |
-| `JtsBackLink.tsx`      | [`jts-back-link.md`](jts-back-link.md)           | Detail-screen exit: labelled link, «Back to \<place\>»                              |
-| `JtsStat.tsx`          | [`jts-stat.md`](jts-stat.md)                     | One definition-list-safe metric: `dt`/`dd`, tone marker, decorative icon            |
-| `JtsDataTable.tsx`     | [`jts-data-table.md`](jts-data-table.md)         | Table naming, loading/empty/error, overflow, toolbar, client sort + pagination      |
-| `JtsLiveIndicator.tsx` | [`jts-live-indicator.md`](jts-live-indicator.md) | Polled-pane quiet refresh mark: no layout shift, no live region, no status colour   |
+| Component              | Contract                                         | Owns                                                                              |
+| ---------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `JtsPageHeader.tsx`    | [`jts-page-header.md`](jts-page-header.md)       | One route's `h1`, back link, description and actions                              |
+| `JtsBackLink.tsx`      | [`jts-back-link.md`](jts-back-link.md)           | Detail-screen exit: labelled link, «Back to \<place\>»                            |
+| `JtsStat.tsx`          | [`jts-stat.md`](jts-stat.md)                     | One definition-list-safe metric: `dt`/`dd`, toned value and icon tile             |
+| `JtsDataTable.tsx`     | [`jts-data-table.md`](jts-data-table.md)         | Table naming, loading/empty/error, overflow, toolbar, client sort + pagination    |
+| `JtsLiveIndicator.tsx` | [`jts-live-indicator.md`](jts-live-indicator.md) | Polled-pane quiet refresh mark: no layout shift, no live region, no status colour |
 
 `JtsBackLink` normally via `JtsPageHeader`'s `back` prop; render directly only
 where there is no header. `JtsDataTable` owns states/framing; the page owns
@@ -31,13 +31,20 @@ reusable surface.
 | Component                                                                             | Owner       | Owns                                                                                                       |
 | ------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
 | [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop sidebar / mobile drawer, skip target, route entrance; assistant keeps its mount across thread URLs |
-| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed links to shipped destinations (sidebar + drawer via `variant`); dev-only Cookbook                  |
+| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Icon-labelled links to shipped destinations (sidebar + drawer via `variant`); dev-only Cookbook            |
 | [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator popover, Appearance (`useTheme`), Theme picker (`usePalette`)                                     |
 
 `AdminNavigation` and `AdminUserMenu` mount twice — every internal id from
 `useId`. Navigation contains Overview, AI assistant, Events, Participants,
 Feedback & safety and Outbound queue; Cookbook appears only in development.
 Unimplemented areas have no placeholder rows.
+
+### Product identity
+
+`BrandMark` and `BrandLockup` own the two-piece S, surface fills, Sora wordmark,
+home-link name and optional tagline. Use them on desktop/mobile navigation,
+sign-in, auth states and errors. [Brand contract](brand.md) owns the SVG exports
+and small-size verification.
 
 ### Authentication surfaces
 

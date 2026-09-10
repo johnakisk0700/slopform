@@ -711,9 +711,7 @@ export function RespondentPanel({ conversation }: RespondentPanelProps) {
   return (
     <Panel icon={UserRound} title="Respondent">
       <div className="flex items-center gap-3">
-        {/* Rounded square: the circle motif stays with the brand mark.
-            Neutral fill, as on the participant profile — the accent is for
-            interactive emphasis, not for decorating an initial. */}
+        {/* Neutral, rounded-square initials match the participant profile. */}
         <Avatar
           color="default"
           variant="soft"

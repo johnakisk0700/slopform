@@ -13,12 +13,9 @@
       (`--color-surface: var(--surface)` → bg-surface …); we add the jts
       vocabulary (ink, canvas, primary, copper, info, sidebar-*) and override
       the type/radius/shadow/tracking scales with jts values.
-   3. A small base layer carries the app-wide rules (focus, selection,
-      headings, reduced motion) and the two sanctioned motif classes
-      (.brand-mark decorative six-dot, .status-dot) plus .skip-link.
-      The product logo is BrandLockup / BrandMark (SVG, currentColor), not .brand-mark.
-      The `jts-title-mark` utility below counts to six as well — deliberately, it
-      is the same sentence at title scale — and belongs to page titles alone.
+   3. Global focus, selection, headings, metadata labels and reduced motion.
+      BrandLockup / BrandMark own the product identity; status uses labelled
+      icons and semantic soft fills.
 
    Dark mode: the `dark` class on <html> (set pre-paint in index.html, owned
    by src/lib/useTheme.ts). Components must not hand-roll colors — see
@@ -28,7 +25,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "@fontsource-variable/manrope/wght.css";
-@import "@fontsource-variable/commissioner/wght.css";
 /* Latin only, and only ever the wordmark: the unicode-range on each face means
    a page that renders "Slopform" fetches the latin file and nothing else. */
 @import "@fontsource-variable/sora/wght.css";
@@ -158,6 +154,11 @@
   --color-border-subtle: var(--jts-color-border-subtle);
   --color-border-strong: var(--jts-color-border-strong);
 
+  /* Product mark, independent of interactive emphasis. */
+  --color-brand-upper: var(--jts-color-brand-upper);
+  --color-brand-lower: var(--jts-color-brand-lower);
+  --color-brand-inverse: var(--jts-color-brand-inverse);
+
   /* Brand vocabulary (same values HeroUI's accent consumes) */
   --color-primary: var(--jts-color-primary);
   --color-primary-hover: var(--jts-color-primary-hover);
@@ -194,7 +195,7 @@
   --color-sidebar-hover: var(--jts-color-sidebar-hover-bg);
   --color-sidebar-active: var(--jts-color-sidebar-active-bg);
   --color-sidebar-active-fg: var(--jts-color-sidebar-active-text);
-  --color-sidebar-active-index: var(--jts-color-sidebar-active-index);
+  --color-sidebar-accent: var(--jts-color-sidebar-accent);
   --color-sidebar-border: var(--jts-color-sidebar-border);
 
   /* Shape, elevation, layout */
@@ -218,75 +219,28 @@
   --container-content: var(--jts-content-width);
 }
 
-/* The page title's mark — six dots, the last one in the accent.
-   ---------------------------------------------------------------------------
-   What this replaces: a 3px × 2rem wine dash under every h1. It was a solid
-   bar that said nothing but «a heading ended here», and three files carried
-   the same six utilities by hand to draw it.
+/* A quiet hashtag beside standard and custom page titles. */
+@utility jts-page-title {
+  position: relative;
+  padding-inline-start: var(--jts-space-6);
 
-   Six dots because that is the product: five at the table and the sixth seat
-   waiting, which is the same sentence the SVG lockup says with a chair. Five
-   take the theme's primary and the last takes its accent, so the count is
-   legible at a glance instead of reading as an anonymous row of pips — and so
-   the mark states the brand rather than merely decorating it. Both hues are
-   the palette's own, so all six themes get their own version of it.
-
-   Geometry, so nobody has to re-derive it: dots are 3px across on a 6px pitch,
-   centres at 1.5 … 31.5, giving a 33px box the sixth dot ends flush with. Six
-   explicit gradients rather than a repeat, mirroring `.brand-mark` below — the
-   copper one is then visibly the last line instead of a second layer whose
-   offset has to agree with a tile size.
-
-   Static, always: a title mark is not a status, so no pulse and no glow. */
-@utility jts-title-mark {
-  &::after {
-    content: "";
-    display: block;
-    width: 33px;
-    height: 3px;
-    margin-top: var(--jts-space-2);
-    background-image:
-      radial-gradient(
-        circle at 1.5px 50%,
-        var(--jts-color-primary) 0 1.5px,
-        transparent 1.6px
-      ),
-      radial-gradient(
-        circle at 7.5px 50%,
-        var(--jts-color-primary) 0 1.5px,
-        transparent 1.6px
-      ),
-      radial-gradient(
-        circle at 13.5px 50%,
-        var(--jts-color-primary) 0 1.5px,
-        transparent 1.6px
-      ),
-      radial-gradient(
-        circle at 19.5px 50%,
-        var(--jts-color-primary) 0 1.5px,
-        transparent 1.6px
-      ),
-      radial-gradient(
-        circle at 25.5px 50%,
-        var(--jts-color-primary) 0 1.5px,
-        transparent 1.6px
-      ),
-      radial-gradient(
-        circle at 31.5px 50%,
-        var(--jts-color-accent) 0 1.5px,
-        transparent 1.6px
-      );
+  & > .jts-page-title-mark {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0.25em;
+    width: var(--jts-space-4);
+    height: var(--jts-space-4);
+    color: var(--jts-color-accent);
+    pointer-events: none;
   }
 }
 
-/* The tracked micro-caps recipe every metadata label shares (tags, table
-   labels, kickers). Prefixed because Tailwind's core `overline` utility sets
-   text-decoration-line and both rules would emit. */
+/* Shared metadata labels: sentence case, readable size and a quiet weight. */
 @utility jts-overline {
-  font-size: var(--jts-text-2xs);
-  font-weight: var(--jts-weight-extrabold);
-  text-transform: uppercase;
-  letter-spacing: var(--jts-tracking-caps);
+  font-size: var(--jts-text-xs);
+  font-weight: var(--jts-weight-semibold);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------------------------------
@@ -387,23 +341,6 @@
 
   .skip-link:focus {
     transform: translateY(0);
-  }
-
-  /* The six-dot brand mark — six at a table. The ONLY decorative motif. */
-  .brand-mark {
-    display: inline-block;
-    width: 1.7rem;
-    height: 1.7rem;
-    flex: 0 0 auto;
-    border: 1.5px solid currentcolor;
-    border-radius: 50%;
-    background:
-      radial-gradient(circle at 50% 12%, currentcolor 0 1.5px, transparent 2px),
-      radial-gradient(circle at 83% 31%, currentcolor 0 1.5px, transparent 2px),
-      radial-gradient(circle at 83% 69%, currentcolor 0 1.5px, transparent 2px),
-      radial-gradient(circle at 50% 88%, currentcolor 0 1.5px, transparent 2px),
-      radial-gradient(circle at 17% 69%, currentcolor 0 1.5px, transparent 2px),
-      radial-gradient(circle at 17% 31%, currentcolor 0 1.5px, transparent 2px);
   }
 
   /* A <details> that opens instead of appearing.
@@ -658,11 +595,11 @@
     padding: 0.35em 0.65em;
     border-bottom: 1px solid var(--jts-color-border);
     color: var(--jts-color-text-muted);
-    font-size: 0.68rem;
-    font-weight: 600;
+    font-size: var(--jts-text-xs);
+    font-weight: var(--jts-weight-semibold);
     text-align: left;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    text-transform: none;
+    letter-spacing: normal;
   }
 
   .assistant-markdown td {
@@ -795,49 +732,70 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /*
-   * A card is a quotation from the database inside an answer, so it is drawn as
-   * a quotation: raised off the message, its own border, and a start rule in the
-   * theme's own colour so a profile beside an event beside prose still reads as
-   * one voice. Deliberately narrower than the message column — a record is a
-   * fact to glance at, not a paragraph to read across.
-   */
+  /* The identity and status header is separated from the fields. Cards keep
+     their content height even when they share a grid with a longer record. */
   .assistant-card {
+    align-self: start;
+    min-width: 0;
     max-width: 28rem;
-    margin: 0.8em 0;
+    margin: var(--jts-space-3) 0;
     border: 1px solid var(--jts-color-border);
-    border-inline-start: 2px solid var(--jts-color-primary);
     border-radius: var(--jts-radius-sm);
     background: var(--jts-color-surface-raised);
-    padding: 0.65rem 0.8rem;
+    padding: var(--jts-space-3);
   }
 
   .assistant-card__header {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    flex-wrap: wrap;
+    gap: var(--jts-space-2);
+  }
+
+  .assistant-card__identity-icon {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    align-self: start;
+    width: var(--jts-space-8);
+    height: var(--jts-space-8);
+    border-radius: var(--jts-radius-sm);
+    background: var(--jts-color-primary-soft);
+    color: var(--jts-color-primary);
+  }
+
+  .assistant-card__identity {
+    min-width: 0;
   }
 
   .assistant-card__title {
     margin: 0;
     font-family: var(--jts-font-sans);
-    font-size: 0.92rem;
-    font-weight: 600;
-    line-height: 1.3;
+    font-size: var(--jts-text-md);
+    font-weight: var(--jts-weight-bold);
+    line-height: var(--jts-leading-snug);
     color: var(--jts-color-text);
+    overflow-wrap: anywhere;
   }
 
   .assistant-card__chip {
-    border-radius: var(--jts-radius-xs);
-    padding: 0.05rem 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--jts-space-1);
+    border: 1px solid transparent;
+    border-radius: var(--jts-radius-pill);
+    padding: calc(var(--jts-space-1) / 2) var(--jts-space-2);
     background: var(--jts-color-surface-sunken);
     color: var(--jts-color-text-muted);
     font-family: var(--jts-font-sans);
-    font-size: 0.68rem;
-    font-weight: 500;
-    letter-spacing: 0.01em;
+    font-size: var(--jts-text-xs);
+    font-weight: var(--jts-weight-medium);
+    line-height: var(--jts-leading-snug);
     white-space: nowrap;
+  }
+
+  .assistant-card__chip--default {
+    background: transparent;
+    border-color: var(--jts-color-border);
   }
 
   .assistant-card__chip--accent {
@@ -846,21 +804,37 @@
   }
 
   .assistant-card__chip--success {
+    border-color: var(--jts-color-success-border);
     background: var(--jts-color-success-soft);
     color: var(--jts-color-success);
   }
 
   .assistant-card__chip--danger {
+    border-color: var(--jts-color-danger-border);
     background: var(--jts-color-danger-soft);
     color: var(--jts-color-danger);
+  }
+
+  .assistant-card__status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--jts-space-1);
+    margin-top: var(--jts-space-1);
   }
 
   .assistant-card__fields {
     display: grid;
     grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-    gap: 0.15rem 0.7rem;
-    margin: 0.5rem 0 0;
-    font-size: 0.8rem;
+    gap: var(--jts-space-1) var(--jts-space-3);
+    margin: var(--jts-space-2) 0 0;
+    border-top: 1px solid var(--jts-color-border);
+    padding-top: var(--jts-space-2);
+    font-size: var(--jts-text-sm);
+  }
+
+  .assistant-card__status:empty,
+  .assistant-card__fields:empty {
+    display: none;
   }
 
   /* Each field is its own grid row, so a missing one leaves no gap behind. */
@@ -872,10 +846,12 @@
   }
 
   .assistant-card__field dt {
+    display: flex;
+    align-items: center;
+    gap: var(--jts-space-2);
     color: var(--jts-color-text-muted);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-size: var(--jts-text-xs);
+    font-weight: var(--jts-weight-medium);
   }
 
   .assistant-card__field dd {
@@ -901,9 +877,8 @@
     margin-bottom: 0.45em;
     color: var(--jts-color-text-muted);
     font-family: var(--jts-font-sans);
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: var(--jts-text-xs);
+    font-weight: var(--jts-weight-semibold);
   }
 
   .assistant-chart svg {

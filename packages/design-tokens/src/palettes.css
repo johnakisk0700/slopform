@@ -20,8 +20,10 @@
    status. Review contrast and distinguishability when changing values; these
    CSS files have no automated colour assertion suite.
 
-   The sidebar remains dark in both modes. Its active index uses the palette's
+   The sidebar remains dark in both modes. Its active icon uses the palette's
    dark primary in both modes; the mobile drawer uses its current primary.
+   The product mark retains its rose/wine identity except in monochrome Noir;
+   its lower fill lifts on dark/strong surfaces through the shared brand tokens.
 
    Provenance: graphite is ours; noir is ours (monochrome in the brand, so the
    only colour on screen is a meaning); amphora is Flexoki (Steph Ango) glazed
@@ -75,7 +77,7 @@
   --jts-color-rose-border: #b8246252;
   --jts-color-highlight: #e0eef8;
   --jts-color-highlight-text: #073f6b;
-  --jts-color-sidebar-active-index: #63b3f0;
+  --jts-color-sidebar-accent: #63b3f0;
 }
 
 :root[data-palette="graphite"].dark {
@@ -122,10 +124,12 @@
   --jts-color-rose-border: #ff8ab852;
   --jts-color-highlight: #12354f;
   --jts-color-highlight-text: #b5dffc;
-  --jts-color-sidebar-active-index: #63b3f0;
+  --jts-color-sidebar-accent: #63b3f0;
 }
 
 :root[data-palette="noir"]:not(.dark) {
+  --jts-color-brand-upper: #92928f;
+  --jts-color-brand-lower: #262624;
   --jts-color-canvas: #efefee;
   --jts-color-surface: #fdfdfd;
   --jts-color-surface-raised: #ffffff;
@@ -169,10 +173,11 @@
   --jts-color-rose-border: #c0286a52;
   --jts-color-highlight: #e7e7e5;
   --jts-color-highlight-text: #0a0a09;
-  --jts-color-sidebar-active-index: #e6e6e3;
+  --jts-color-sidebar-accent: #e6e6e3;
 }
 
 :root[data-palette="noir"].dark {
+  --jts-color-brand-upper: #92928f;
   --jts-color-canvas: #0a0a0a;
   --jts-color-surface: #141414;
   --jts-color-surface-raised: #1f1f1e;
@@ -216,7 +221,7 @@
   --jts-color-rose-border: #ff8ab852;
   --jts-color-highlight: #353534;
   --jts-color-highlight-text: #ffffff;
-  --jts-color-sidebar-active-index: #e6e6e3;
+  --jts-color-sidebar-accent: #e6e6e3;
 }
 
 :root[data-palette="amphora"]:not(.dark) {
@@ -263,7 +268,7 @@
   --jts-color-rose-border: #c0287252;
   --jts-color-highlight: #d9f0e9;
   --jts-color-highlight-text: #0d4d47;
-  --jts-color-sidebar-active-index: #4ec7b3;
+  --jts-color-sidebar-accent: #4ec7b3;
 }
 
 :root[data-palette="amphora"].dark {
@@ -310,7 +315,7 @@
   --jts-color-rose-border: #ff8ec052;
   --jts-color-highlight: #173a35;
   --jts-color-highlight-text: #a8e8db;
-  --jts-color-sidebar-active-index: #4ec7b3;
+  --jts-color-sidebar-accent: #4ec7b3;
 }
 
 :root[data-palette="linen"]:not(.dark) {
@@ -357,7 +362,7 @@
   --jts-color-rose-border: #b0287052;
   --jts-color-highlight: #f9e9df;
   --jts-color-highlight-text: #6d351a;
-  --jts-color-sidebar-active-index: #e0a583;
+  --jts-color-sidebar-accent: #e0a583;
 }
 
 :root[data-palette="linen"].dark {
@@ -405,7 +410,7 @@
   --jts-color-rose-border: #e090d852;
   --jts-color-highlight: #462c20;
   --jts-color-highlight-text: #f0d5c5;
-  --jts-color-sidebar-active-index: #e0a583;
+  --jts-color-sidebar-accent: #e0a583;
 }
 
 :root[data-palette="iris"]:not(.dark) {
@@ -453,7 +458,7 @@
   --jts-color-rose-border: #b0484052;
   --jts-color-highlight: #ece4f5;
   --jts-color-highlight-text: #472f64;
-  --jts-color-sidebar-active-index: #c4a7e7;
+  --jts-color-sidebar-accent: #c4a7e7;
 }
 
 :root[data-palette="iris"].dark {
@@ -501,5 +506,5 @@
   --jts-color-rose-border: #ffa0a852;
   --jts-color-highlight: #453d58;
   --jts-color-highlight-text: #e5d6f7;
-  --jts-color-sidebar-active-index: #c4a7e7;
+  --jts-color-sidebar-accent: #c4a7e7;
 }

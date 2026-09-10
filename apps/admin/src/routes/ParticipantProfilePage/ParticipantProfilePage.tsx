@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Cake,
   Calendar,
+  Hash,
   MapPin,
   MessageCircle,
   SlidersHorizontal,
@@ -81,7 +82,6 @@ export function ParticipantProfilePage() {
         {/* The nameplate and contact row align with the attribute grid below. */}
         <header className="flex min-w-0 flex-col gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            {/* Rounded square: circle motif stays reserved for the brand mark. */}
             <Avatar
               color="default"
               variant="soft"
@@ -95,13 +95,12 @@ export function ParticipantProfilePage() {
             </Avatar>
             {/* Match the avatar height while allowing long Greek names to wrap. */}
             <div className="flex min-h-12 min-w-0 flex-col justify-center">
-              {/* Same display scale and the same six-dot mark JtsPageHeader
-                  gives a title — this h1 is the route's, it just happens to
-                  sit beside the avatar. Opt-in lives in Preferences. */}
+              {/* Match the shared page title while keeping profile actions adjacent. */}
               <h1
                 id="participant-sheet-heading"
-                className="jts-title-mark mb-0 font-display text-[1.375rem] font-extrabold leading-tight text-ink"
+                className="jts-page-title mb-0 font-display text-[1.375rem] font-bold leading-tight text-ink"
               >
+                <Hash aria-hidden="true" className="jts-page-title-mark" />
                 {displayName}
               </h1>
             </div>
@@ -235,9 +234,7 @@ function SheetAttribute({
         className="mt-0.5 size-4 shrink-0 text-ink-muted"
       />
       <div className="min-w-0">
-        <dt className="text-xs font-semibold uppercase tracking-caps text-ink-muted">
-          {label}
-        </dt>
+        <dt className="jts-overline text-ink-muted">{label}</dt>
         <dd className="mt-1 text-sm text-ink">{children}</dd>
       </div>
     </div>

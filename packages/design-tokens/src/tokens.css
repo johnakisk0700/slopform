@@ -136,8 +136,8 @@
   --jts-color-surface-overlay: var(--jts-clay-50);
   /* Inverse / sidebar. Deep wine, held below full saturation: a fifth of the
      screen is this colour all day, and at full strength it behaved like a
-     permanent alarm the eye kept checking. The lit index numeral (wine-300)
-     is where the sidebar's wine still sings. */
+     permanent alarm the eye kept checking. Active navigation icons use
+     wine-300; the product mark has its own surface-aware fills. */
   --jts-color-surface-strong: #4a1c2a;
 
   /* Borders */
@@ -159,6 +159,12 @@
     #fbeef0 64%,
     transparent
   );
+
+  /* Product mark — fixed rose/wine identity, independent of action colours.
+     Noir supplies neutral equivalents; the lower fill lifts in dark mode. */
+  --jts-color-brand-upper: #bd6078;
+  --jts-color-brand-lower: #631928;
+  --jts-color-brand-inverse: var(--jts-color-text-on-strong);
 
   /* Brand / interactive */
   --jts-color-primary: var(--jts-wine-700);
@@ -230,26 +236,20 @@
   --jts-color-sidebar-hover-bg: color-mix(in srgb, #ffffff 8%, transparent);
   --jts-color-sidebar-active-bg: color-mix(in srgb, #ffffff 12%, transparent);
   --jts-color-sidebar-active-text: var(--jts-color-text-on-strong);
-  /* The lit numeral is the sidebar's one spot of colour. It is stated rather
-     than derived from `--jts-color-primary`, because the slab is dark in BOTH
-     themes and the light theme's primary is dark ink meant for paper — it
-     would sink into the slab. So the rule is: THE NUMERAL IS THE THEME'S DARK
-     PRIMARY, in both modes. Wine-300 is exactly that value here, which is why
-     this line needs no dark override. A palette that repaints the slab must
-     repaint this with it (see palettes.css); the spec measures it. */
-  --jts-color-sidebar-active-index: var(--jts-wine-300);
+  /* Active navigation icons on the inverse surface. This uses the
+     dark primary in both modes so it remains legible against the sidebar. */
+  --jts-color-sidebar-accent: var(--jts-wine-300);
   --jts-color-sidebar-border: color-mix(in srgb, #ffffff 12%, transparent);
 
   /* ---------------------------------------------------------------------------
      3. TYPOGRAPHY, SPACE, RADIUS, SHADOW, Z, MOTION — mode-independent.
      --------------------------------------------------------------------------- */
 
-  /* Families. Sans and display both carry Latin + Greek (see ADR 0011). */
+  /* Manrope for UI and headings, Sora for the wordmark (ADR 0022). */
   --jts-font-sans:
     "Manrope Variable", "Manrope", ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --jts-font-display:
-    "Commissioner Variable", "Commissioner", var(--jts-font-sans);
+  --jts-font-display: var(--jts-font-sans);
   /* The wordmark, and nothing else. It sets one fixed Latin string —
      "Slopform" — so unlike sans and display it carries no Greek
      requirement, which is what let a geometric face be chosen to answer the
@@ -373,6 +373,9 @@
     #fbeef0 60%,
     transparent
   );
+
+  /* The mark's lower curve lifts on ordinary dark surfaces, too. */
+  --jts-color-brand-lower: var(--jts-color-text);
 
   /* Brand — lifts to a lighter wine so it reads on dark surfaces */
   --jts-color-primary: var(--jts-wine-300);

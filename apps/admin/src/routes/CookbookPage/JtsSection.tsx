@@ -1,5 +1,5 @@
 import { Button, ToggleButton } from "@heroui/react";
-import { Calendar, CircleCheck, TriangleAlert, Users } from "lucide-react";
+import { Calendar, CircleCheck, Clock, Users } from "lucide-react";
 import { useState } from "react";
 
 import { AssistantMarkdown } from "../../components/admin/assistant/AssistantMarkdown";
@@ -29,18 +29,20 @@ export function JtsSection() {
         </p>
         {/* aria-hidden rather than a fake heading level: the point of the
               specimen is that it is the real component, unaltered. */}
-        <div aria-hidden="true" className="rounded-sm bg-surface-sunken p-4">
+        <div
+          aria-hidden="true"
+          className="rounded-sm bg-surface-sunken p-4 lg:px-8"
+        >
           <JtsPageHeader
-            eyebrow="Feedback & safety"
             title="Δείπνο στο Κολωνάκι"
-            description="Eyebrow, the h1 with its six-dot mark, and a muted supporting line. A back link would sit above the eyebrow. Actions are omitted here — a hidden frame must not contain anything focusable."
+            description="A quiet hashtag sits beside the title. A back link would sit above it. Actions are omitted from this hidden specimen."
           />
         </div>
       </div>
 
       <Specimen
         label="JtsBackLink"
-        note="The one way out of a detail screen: left chevron, wine, «Back to <place>». JtsPageHeader takes it as `back` and puts it above the eyebrow; a compact header renders it directly. It is never filed among a screen's actions — those change the thing on screen, this leaves it. Kept outside the hidden frame above, because it is focusable."
+        note="The one way out of a detail screen: left chevron, wine, «Back to <place>». JtsPageHeader takes it as `back` and puts it above the title. Kept outside the hidden frame above, because it is focusable."
       >
         {/* Points at the section it lives in, so the gallery's one live
               navigation control cannot navigate out of the gallery. */}
@@ -66,7 +68,7 @@ export function JtsSection() {
           value={7}
           detail="Older than ten minutes"
           tone="warning"
-          icon={TriangleAlert}
+          icon={Clock}
         />
       </dl>
 
@@ -104,27 +106,46 @@ export function JtsSection() {
         />
       </Specimen>
 
-      <Specimen
-        label="Assistant cards"
-        note="Rendered from the fenced `jts` blocks below exactly as the assistant writes them — the specimen is the real path, not a mock of it. Fields the model omits leave no row behind, and a card that fails to parse falls back to its raw block rather than vanishing."
-        className="grid gap-3 sm:grid-cols-2"
+      <section
+        id="assistant-cards"
+        aria-label="Assistant card examples"
+        className="scroll-mt-24"
       >
-        <AssistantMarkdown>
-          {
-            '```jts\n{"kind":"profile","name":"Μαρία Κ.","email":"maria@example.com","phone":"+306900000000","neighborhood":"Κουκάκι","ageBand":"30-39","feedbackOptIn":true,"eventCount":4}\n```'
-          }
-        </AssistantMarkdown>
-        <AssistantMarkdown>
-          {
-            '```jts\n{"kind":"event","title":"Δείπνο στο Παγκράτι","startsAt":"2026-08-09T18:00:00.000Z","status":"scheduled","venue":"Καφενείο","area":"Παγκράτι","attendeeCount":6,"presentCount":0}\n```'
-          }
-        </AssistantMarkdown>
-        <AssistantMarkdown>
-          {
-            '```jts\n{"kind":"conversation","respondent":"Ειρήνη Κ.","campaign":"Δείπνο στο Παγκράτι","state":"open","control":"human","needsAttention":true,"answered":2,"goalCount":4,"messageCount":11,"lastMessageAt":"2026-08-01T20:14:00.000Z"}\n```'
-          }
-        </AssistantMarkdown>
-      </Specimen>
+        <Specimen
+          label="Assistant cards"
+          note="Real assistant rendering: a tinted identity icon and name anchor the header; compact status badges sit above a separator. Each card fits its own content. Missing fields leave no row or empty body behind; malformed cards fall back to text."
+          className="grid gap-3 sm:grid-cols-2"
+        >
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"profile","name":"Μαρία Κ.","email":"maria@example.com","phone":"+306900000000","neighborhood":"Κουκάκι","ageBand":"30-39","feedbackOptIn":true,"eventCount":4}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"event","title":"Δείπνο στο Παγκράτι","startsAt":"2026-08-09T18:00:00.000Z","status":"scheduled","venue":"Καφενείο","area":"Παγκράτι","attendeeCount":6,"presentCount":0}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"conversation","respondent":"Ειρήνη Κ.","campaign":"Δείπνο στο Παγκράτι","state":"open","control":"human","needsAttention":true,"answered":2,"goalCount":4,"messageCount":11,"lastMessageAt":"2026-08-01T20:14:00.000Z"}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"conversation","respondent":"Νίκος Α.","campaign":"Δείπνο στο Παγκράτι","state":"open","control":"bot","needsAttention":false,"answered":3,"goalCount":4,"messageCount":8,"lastMessageAt":"2026-08-01T20:16:00.000Z"}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"profile","name":"Άννα Μ.","phone":"+306911111111"}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {'```jts\n{"kind":"event","title":"Κυριακάτικο τραπέζι"}\n```'}
+          </AssistantMarkdown>
+        </Specimen>
+      </section>
     </Section>
   );
 }

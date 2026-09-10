@@ -32,7 +32,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "Outbound queue", Icon: SendHorizontal, to: "/admin/outbound" },
 ];
 
-/** Development tools match the route gate in App.tsx and stay outside product numbering. */
+/** Development tools match the route gate in App.tsx. */
 const DEV_NAV_ITEMS: readonly NavItem[] = import.meta.env.DEV
   ? [{ label: "Cookbook", Icon: SwatchBook, to: "/admin/cookbook" }]
   : [];
@@ -43,8 +43,7 @@ interface NavVariantStyles {
   hover: string;
   /** Active fill / text / weight (the aria-current row). */
   active: string;
-  index: string;
-  activeIndex: string;
+  iconActive: string;
   iconIdle: string;
   /** Hairline above a trailing group, in this surface's own border tone. */
   divider: string;
@@ -55,8 +54,7 @@ const VARIANTS: Record<NavVariant, NavVariantStyles> = {
     link: "text-sidebar-fg-muted",
     hover: "hover:bg-sidebar-hover hover:text-sidebar-fg",
     active: "bg-sidebar-active font-bold text-sidebar-active-fg",
-    index: "opacity-45",
-    activeIndex: "font-extrabold text-sidebar-active-index opacity-100",
+    iconActive: "text-sidebar-accent",
     iconIdle: "opacity-75",
     divider: "border-sidebar-border",
   },
@@ -64,8 +62,7 @@ const VARIANTS: Record<NavVariant, NavVariantStyles> = {
     link: "text-ink-muted",
     hover: "hover:bg-primary-soft hover:text-primary",
     active: "bg-primary-soft font-bold text-primary",
-    index: "opacity-45",
-    activeIndex: "font-extrabold text-primary opacity-100",
+    iconActive: "text-primary",
     iconIdle: "opacity-80",
     divider: "border-border",
   },
@@ -73,8 +70,6 @@ const VARIANTS: Record<NavVariant, NavVariantStyles> = {
 
 const LINK_BASE =
   "flex min-h-[2.75rem] w-full items-center gap-3 rounded-md px-3 py-[0.65rem] text-sm font-semibold no-underline transition-colors";
-const INDEX_BASE =
-  "w-[1.1rem] shrink-0 text-[length:var(--jts-text-2xs)] font-semibold tabular-nums";
 const ICON_BASE = "size-[1.1rem] shrink-0";
 
 interface AdminNavigationProps {
@@ -84,15 +79,12 @@ interface AdminNavigationProps {
   onNavigate?: () => void;
 }
 
-/** Null numerals keep development icons aligned with the numbered destinations. */
 function NavRow({
   item,
-  numeral,
   styles,
   onNavigate,
 }: {
   item: NavItem;
-  numeral: string | null;
   styles: NavVariantStyles;
   onNavigate?: (() => void) | undefined;
 }) {
@@ -109,20 +101,11 @@ function NavRow({
     >
       {({ isActive }) => (
         <>
-          <span
-            aria-hidden="true"
-            className={clsx(
-              INDEX_BASE,
-              isActive ? styles.activeIndex : styles.index,
-            )}
-          >
-            {numeral}
-          </span>
           <Icon
             aria-hidden="true"
             className={clsx(
               ICON_BASE,
-              isActive ? "opacity-100" : styles.iconIdle,
+              isActive ? styles.iconActive : styles.iconIdle,
             )}
           />
           <span>{item.label}</span>
@@ -132,7 +115,7 @@ function NavRow({
   );
 }
 
-/** Shared sidebar/drawer landmark with a lit index on the active destination. */
+/** Shared sidebar/drawer landmark with a tinted icon on the active destination. */
 export function AdminNavigation({
   variant = "sidebar",
   onNavigate,
@@ -148,14 +131,9 @@ export function AdminNavigation({
       )}
     >
       <ul className="flex flex-col gap-0.5">
-        {NAV_ITEMS.map((item, position) => (
+        {NAV_ITEMS.map((item) => (
           <li key={item.label}>
-            <NavRow
-              item={item}
-              numeral={String(position + 1).padStart(2, "0")}
-              styles={styles}
-              onNavigate={onNavigate}
-            />
+            <NavRow item={item} styles={styles} onNavigate={onNavigate} />
           </li>
         ))}
       </ul>
@@ -168,12 +146,7 @@ export function AdminNavigation({
           <ul className="flex flex-col gap-0.5">
             {DEV_NAV_ITEMS.map((item) => (
               <li key={item.label}>
-                <NavRow
-                  item={item}
-                  numeral={null}
-                  styles={styles}
-                  onNavigate={onNavigate}
-                />
+                <NavRow item={item} styles={styles} onNavigate={onNavigate} />
               </li>
             ))}
           </ul>

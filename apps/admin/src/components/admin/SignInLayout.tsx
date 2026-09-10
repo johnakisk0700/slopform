@@ -40,11 +40,11 @@ export function SignInLayout({ children }: { children: ReactNode }) {
       className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,0.95fr)_minmax(30rem,1fr)]"
     >
       <section className="relative hidden overflow-hidden border-r border-sidebar-border bg-sidebar p-12 text-sidebar-fg lg:flex lg:flex-col lg:justify-between">
-        {/* The oversized form/chat outline gives the unauthenticated slab one
-            quiet brand shape without competing with the sign-in card. It uses
-            the same surface-owned currentColor contract as the small mark and
-            remains decorative. */}
-        <BrandMark className="pointer-events-none absolute top-1/2 right-0 size-[34rem] -translate-y-1/2 -rotate-90 text-sidebar-active-index opacity-[0.06]" />
+        {/* The upright S repeats the product mark as a quiet decorative backdrop. */}
+        <BrandMark
+          surface="strong"
+          className="pointer-events-none absolute top-1/2 right-0 size-[34rem] -translate-y-1/2 opacity-[0.06]"
+        />
 
         <div className="relative">
           <BrandLockup
@@ -96,7 +96,7 @@ export function SignInLayout({ children }: { children: ReactNode }) {
               route, and Clerk's own card heading stays hidden so the page owns
               one stable h1 from first paint. */}
           <h1 className="flex flex-col items-center gap-3 text-center">
-            <BrandMark className="size-16 text-primary" />
+            <BrandMark className="size-16" />
             <span className="font-brand text-2xl font-extrabold tracking-tight text-ink">
               Slopform
             </span>

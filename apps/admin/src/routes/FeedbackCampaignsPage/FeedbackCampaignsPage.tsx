@@ -39,7 +39,6 @@ export function FeedbackCampaignsPage() {
   return (
     <div className="flex flex-col gap-6">
       <JtsPageHeader
-        eyebrow="Post-event feedback"
         title="Feedback campaigns"
         description="One dinner, one campaign, one chance to ask. Open a campaign to read what came back — and to step in where the bot should not answer alone."
       />

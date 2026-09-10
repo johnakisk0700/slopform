@@ -1,7 +1,8 @@
 import { clsx } from "clsx";
-import { Check } from "lucide-react";
+import { Check, CircleAlert, Clock, Hash } from "lucide-react";
 
 import { BrandLockup } from "../../components/admin/BrandLockup";
+import { BrandMark } from "../../components/admin/BrandMark";
 
 import { MOTIF_SECTION } from "./cookbookSections";
 import { Section, Specimen } from "./Specimen";
@@ -11,34 +12,37 @@ export function MotifsSection() {
     <Section spec={MOTIF_SECTION}>
       <div className="grid gap-3 lg:grid-cols-2">
         <Specimen
-          label="The six-dot mark — under a title"
-          note="Five dots in the theme's primary and a sixth in its accent: the table, and the seat still open. It belongs to page titles alone, and it replaced the plain 3px dash every h1 used to carry."
+          label="Page titles"
+          note="Bold Manrope with a quiet hashtag floating to the left. The marker stays beside the first line when a title wraps."
           className="grid gap-2"
         >
-          <p className="jts-title-mark font-display text-[1.375rem] font-extrabold text-ink">
+          <p className="jts-page-title font-display text-[1.375rem] font-bold leading-tight text-ink">
+            <Hash aria-hidden="true" className="jts-page-title-mark" />
             Operations control
+          </p>
+          <p className="text-sm text-ink-muted">
+            Your conversations and upcoming events.
           </p>
         </Specimen>
 
         <Specimen
-          label="The 3px marker — vertical"
-          note="On the left edge of a card, in wine or in a status tone. The horizontal dash that used to pair with it now belongs to the six-dot mark, so these two are the whole vocabulary."
-          className="grid gap-2"
+          label="Attention: icon, label and soft fill"
+          note="Compact badges pair a readable label with an icon and semantic fill. Attention stays visible without filling the card's width."
+          className="flex flex-wrap items-center gap-2"
         >
-          <p className="rounded-md border border-border border-l-[3px] border-l-primary bg-surface-sunken px-3 py-2 text-sm text-ink">
-            border-l-[3px] border-l-primary
-          </p>
-          <p className="rounded-md border border-border border-l-[3px] border-l-success bg-surface-sunken px-3 py-2 text-sm text-ink">
-            border-l-[3px] border-l-success
-          </p>
-          <p className="rounded-md border border-border border-l-[3px] border-l-warning bg-surface-sunken px-3 py-2 text-sm text-ink">
-            border-l-[3px] border-l-warning
-          </p>
+          <span className="inline-flex items-center gap-1 rounded-full border border-danger-border bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
+            <CircleAlert aria-hidden="true" className="size-3 shrink-0" />
+            Needs attention
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-warning-border bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+            <Clock aria-hidden="true" className="size-3 shrink-0" />
+            Waiting too long
+          </span>
         </Specimen>
 
         <Specimen
           label="Brand lockup"
-          note="SVG form/chat mark via currentColor + the Sora wordmark (`font-brand`, the wordmark's own face — never UI copy). The mark takes the theme brand on its slab (`sidebar-active-index` on strong, `primary` on paper); the wordmark inherits the parent tone. With a tagline the mark steps up to 40px and both lines set solid, so the three parts read as one block."
+          note="The two-piece S and Sora wordmark form the shared lockup. The mark keeps its rose/wine identity on light surfaces and uses a light lower curve on dark or strong surfaces. Noir uses neutral fills. With a tagline, the mark grows to 40px."
           className="grid gap-4"
         >
           <div className="rounded-md bg-sidebar px-4 py-3 text-sidebar-fg">
@@ -52,11 +56,23 @@ export function MotifsSection() {
         </Specimen>
 
         <Specimen
-          label="Six-dot motif & status dot"
-          note="The CSS six-dot `.brand-mark` is a decorative motif only (empty states) — not the product logo. The status dot is the one environment indicator: static, never pulsing, never glowing."
+          label="Product mark & environment indicator"
+          note="The same filled curves and open channel at 16, 24, 36 and 64px. The small status dot remains reserved for the environment indicator."
+          className="grid gap-4"
         >
-          <span aria-hidden="true" className="brand-mark text-primary" />
-          <span aria-hidden="true" className="brand-mark text-copper" />
+          <div className="flex flex-wrap items-end gap-6">
+            {[
+              { label: "16px", className: "size-4" },
+              { label: "24px", className: "size-6" },
+              { label: "36px", className: "size-9" },
+              { label: "64px", className: "size-16" },
+            ].map(({ label, className }) => (
+              <span key={label} className="grid justify-items-center gap-2">
+                <BrandMark className={className} />
+                <span className="text-xs text-ink-muted">{label}</span>
+              </span>
+            ))}
+          </div>
           <span className="inline-flex items-center gap-2 text-sm text-ink-muted">
             <span aria-hidden="true" className="status-dot" />
             Local · connected
@@ -148,9 +164,10 @@ const SHADOWS: readonly { utility: string; token: string }[] = [
 
 const INVARIANTS: readonly string[] = [
   "Colour comes from a semantic token through a bridge utility. No hex, no rgb, no oklch, no default Tailwind palette class, no inline style colour.",
-  "The 3px marker is the only emphasis motif. No glows, gradient washes, blurred circles or pulsing dots.",
+  "Attention uses a labelled icon and a semantic soft fill. Ordinary card outlines stay neutral.",
   "A badge always carries its own label; tone is reinforcement, never the signal.",
   "The `dark` class on <html> is the only theme signal. Components never branch on the theme — the tokens already flipped.",
   "Metadata labels are `jts-overline`, not a hand-written size/weight/tracking triple.",
+  "Field icons accompany visible, sentence-case labels; they never replace the label or invent a missing value.",
   "Numbers that get compared use `tabular-nums`; machine strings use `font-mono`.",
 ];

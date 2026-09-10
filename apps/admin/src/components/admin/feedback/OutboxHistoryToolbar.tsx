@@ -53,7 +53,7 @@ export function OutboxHistoryToolbar({
   onStatusChange,
 }: OutboxHistoryToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-5">
+    <div className="flex items-center gap-5">
       <div className="flex items-center gap-1.5">
         <CalendarRange
           aria-hidden="true"
@@ -108,7 +108,7 @@ export function OutboxHistoryToolbar({
             }
           }}
         >
-          <Select.Trigger className="min-h-8 min-w-[9rem] rounded-md border border-border bg-transparent px-2.5 text-xs font-semibold text-ink shadow-none">
+          <Select.Trigger className="min-w-[9rem] rounded-md border border-border bg-transparent px-2.5 text-xs font-semibold text-ink shadow-none">
             <Select.Value />
             <Select.Indicator />
           </Select.Trigger>

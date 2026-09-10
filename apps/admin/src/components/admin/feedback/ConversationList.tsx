@@ -57,9 +57,8 @@ interface ConversationListProps {
  * How each group announces itself. The heading is where an operator answers
  * "is anything waiting for me", so it carries the weight the rows deliberately
  * shed: its own fill, a strong hairline top and bottom, and the same glyph the
- * campaign tallies use for the same idea. Only NEEDS ATTENTION means "stop and
- * read this", so only it takes the 3px marker and the warning tone; the other
- * two reserve the marker's gutter so every heading label starts on one line.
+ * campaign tallies use for the same idea. Needs attention keeps a warning
+ * fill, icon and visible label; every group has the same neutral outline.
  */
 const GROUP_STYLES: Record<
   ConversationGroupKey,
@@ -67,18 +66,15 @@ const GROUP_STYLES: Record<
 > = {
   attention: {
     icon: TriangleAlert,
-    heading:
-      "border-warning-border border-l-warning bg-warning-soft text-warning",
+    heading: "border-warning-border bg-warning-soft text-warning",
   },
   open: {
     icon: MessageCircleMore,
-    heading:
-      "border-border-strong border-l-transparent bg-surface-sunken text-ink",
+    heading: "border-border-strong bg-surface-sunken text-ink",
   },
   closed: {
     icon: Archive,
-    heading:
-      "border-border-strong border-l-transparent bg-surface-sunken text-ink-muted",
+    heading: "border-border-strong bg-surface-sunken text-ink-muted",
   },
 };
 
@@ -188,7 +184,7 @@ export function ConversationList({
                 <h3
                   id={groupId}
                   className={clsx(
-                    "sticky top-0 z-10 flex items-center gap-2 border-y border-l-[3px] py-2 pr-4 pl-3.5 jts-overline",
+                    "sticky top-0 z-10 flex items-center gap-2 border-y px-4 py-2 jts-overline",
                     style.heading,
                   )}
                 >
@@ -299,7 +295,7 @@ export function ConversationList({
             <section aria-labelledby={notStartedId}>
               <h3
                 id={notStartedId}
-                className="sticky top-0 z-10 flex items-center gap-2 border-y border-l-[3px] border-border-strong border-l-transparent bg-surface-sunken py-2 pr-4 pl-3.5 jts-overline text-ink-muted"
+                className="sticky top-0 z-10 flex items-center gap-2 border-y border-border-strong bg-surface-sunken px-4 py-2 jts-overline text-ink-muted"
               >
                 <UserRoundPlus
                   aria-hidden="true"

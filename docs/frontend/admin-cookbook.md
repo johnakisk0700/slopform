@@ -16,3 +16,10 @@ state. Section metadata, frames and fixture data stay in that folder, grouped
 by the vocabulary they demonstrate.
 
 Source: [CookbookPage.tsx](../../apps/admin/src/routes/CookbookPage/CookbookPage.tsx).
+
+The `#assistant-cards` anchor compares profile/event fields and conversations
+with and without attention using the real assistant renderer. Sparse and
+title-only examples verify that cards have no reserved body height. The motifs
+section documents labelled attention, product marks and neutral outlines; the
+metric specimens show neutral, success and warning icon tiles. Current visual
+direction: [ADR 0022](../decisions/0022-admin-visual-language.md).

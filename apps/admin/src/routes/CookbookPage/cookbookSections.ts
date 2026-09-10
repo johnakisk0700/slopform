@@ -33,7 +33,7 @@ export const TYPE_SECTION: SectionSpec = {
   id: "type",
   title: "Typography",
   Icon: Type,
-  lede: "Manrope for UI/body, Commissioner for display — both Latin and Greek — plus the scale, weights and numerals built on them.",
+  lede: "Manrope for UI, headings and body in Latin and Greek — plus the scale, weights and numerals built on it.",
 };
 
 export const HEROUI_SECTION: SectionSpec = {
@@ -71,7 +71,7 @@ export const MOTIF_SECTION: SectionSpec = {
   lede: "The sanctioned emphasis devices, and the invariants that keep them the only ones.",
 };
 
-/** Reading order. The table of contents and the section numerals both read it. */
+/** Reading order for the table of contents. */
 export const SECTIONS: readonly SectionSpec[] = [
   COLOUR_SECTION,
   TYPE_SECTION,

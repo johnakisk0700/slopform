@@ -298,7 +298,7 @@ export function HeroUISection() {
 
         <Specimen
           label="Avatars"
-          note="Rounded square: the circle stays reserved for the brand mark."
+          note="Rounded-square avatars identify people throughout the workspace."
         >
           <Avatar
             color="accent"

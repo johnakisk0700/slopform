@@ -95,7 +95,7 @@ carries **no** tone.
 | History | bare `/admin/outbound` | Any status; `sent` quiet, `failed` loud                                        | Kept across pages (fetch by id) |
 | Queue   | `?view=queue`          | `pending` / `claimed` / `attempting` / `ambiguous` / bridge `sending` / `held` | Cleared when row leaves waiting |
 
-Queue badge on the History tab carries the waiting count (including quiet `0`).
+The Queue tab badge carries the waiting count (including quiet `0`).
 `ambiguous` stays until reconciliation even when delivery is otherwise healthy.
 
 ## History paging and filters
@@ -117,7 +117,8 @@ Filter change clears the cursor stack.
 
 Full-height route in `AdminShell` (with assistant): split at `lg`, list fixed
 ~18–22 rem, detail takes the rest; `main` `lg:h-dvh`. Below `lg`, ordinary
-document scroll. Summary is one strip, not cards.
+document scroll. Summary is one strip, not cards. History and Queue are HeroUI
+`Tabs`. History range and status filters sit on the same row as the tabs.
 
 ## Opened row
 

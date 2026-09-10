@@ -1,23 +1,22 @@
 import type { ReactNode } from "react";
+import { Hash } from "lucide-react";
 
 import { JtsBackLink } from "./JtsBackLink";
 
 export interface JtsPageHeaderProps {
-  /** The way out of a detail screen, rendered above the eyebrow. */
+  /** The way out of a detail screen, rendered above the title. */
   back?: { to: string; label: string };
-  /** Tracked wine micro-caps kicker, rendered above the title. */
-  eyebrow?: string;
   /** The page's single h1. */
   title: string;
-  /** Muted supporting sentence under the title marker. */
+  /** Muted supporting sentence under the title. */
   description?: string;
   /** Optional actions (buttons, links) rendered bottom-right of the header. */
   actions?: ReactNode;
 }
 
 /**
- * The page header: an optional back link, an eyebrow, the h1 with its six-dot
- * mark, a muted description and an optional actions row. One per page.
+ * The page header: an optional back link, the h1, a muted description and an
+ * optional actions row. One per page.
  *
  * The back link lives here rather than in each route because its position is
  * the part screens kept disagreeing on — above the title on two, inside the
@@ -31,7 +30,6 @@ export interface JtsPageHeaderProps {
  */
 export function JtsPageHeader({
   back,
-  eyebrow,
   title,
   description,
   actions,
@@ -44,14 +42,12 @@ export function JtsPageHeader({
             <JtsBackLink to={back.to}>{back.label}</JtsBackLink>
           </div>
         ) : null}
-        {eyebrow ? (
-          <p className="mb-1.5 jts-overline text-primary">{eyebrow}</p>
-        ) : null}
         {/* Fixed 1.375rem, not a viewport clamp: an operations panel is read at
             one working size all day, and a title that grew to 2.6rem on a wide
             monitor spent the height the actual work needs. The base layer's
             --jts-tracking-tight already applies; no utility overrides it. */}
-        <h1 className="jts-title-mark mb-2 font-display text-[1.375rem] font-extrabold">
+        <h1 className="jts-page-title mb-2 font-display text-[1.375rem] font-bold lg:-ms-6">
+          <Hash aria-hidden="true" className="jts-page-title-mark" />
           {title}
         </h1>
         {description ? (

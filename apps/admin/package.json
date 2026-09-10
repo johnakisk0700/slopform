@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@clerk/react": "6.12.6",
-    "@fontsource-variable/commissioner": "5.2.10",
     "@fontsource-variable/manrope": "5.3.0",
     "@fontsource-variable/sora": "^5.3.0",
     "@googlemaps/js-api-loader": "2.1.1",

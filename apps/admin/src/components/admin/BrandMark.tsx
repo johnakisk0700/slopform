@@ -1,31 +1,31 @@
 import { clsx } from "clsx";
 
 interface BrandMarkProps {
+  /** Use the inverse lower fill on the sidebar and other strong surfaces. */
+  surface?: "default" | "strong";
+  /** When supplied, includes the complete size override. */
   className?: string;
 }
 
-/**
- * Slopform mark: a form inside the conversation bubble it has become.
- * Strokes use `currentColor`, so callers own the tone for their surface.
- */
-export function BrandMark({ className }: BrandMarkProps) {
+/** The Slopform S: two filled curves separated by an open channel. */
+export function BrandMark({ surface = "default", className }: BrandMarkProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 32 32"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      viewBox="120 108 1010 1010"
       aria-hidden="true"
-      className={clsx("shrink-0", className ?? "h-9 w-9")}
+      className={clsx("shrink-0", className ?? "size-9")}
     >
       <path
-        strokeWidth={2.4}
-        d="M7.5 4.5h17A2.5 2.5 0 0 1 27 7v13a2.5 2.5 0 0 1-2.5 2.5H18l-6 5v-5H7.5A2.5 2.5 0 0 1 5 20V7a2.5 2.5 0 0 1 2.5-2.5Z"
+        className="fill-brand-upper"
+        d="M412 431 C344 427 320 409 322 373 C327 325 397 273 490 230 C616 172 775 149 891 171 C1007 188 1065 230 1073 312 C1082 391 1033 453 986 506 C944 553 932 577 942 621 C951 654 941 664 908 663 C851 663 790 632 744 595 C691 552 648 509 599 480 C531 438 475 433 412 431 Z"
       />
-      <path strokeWidth={2.2} d="m9.5 10.5 1.5 1.5 2.75-3" />
-      <path strokeWidth={2.2} d="M17 10.5h5M9.5 16.5H22" />
+      <path
+        className={
+          surface === "strong" ? "fill-brand-inverse" : "fill-brand-lower"
+        }
+        d="M175 654 C175 598 235 538 321 505 C410 471 499 491 558 523 C617 555 649 594 699 640 C754 689 796 711 880 729 C982 750 1063 797 1063 874 C1063 981 893 1066 683 1064 C534 1064 421 1020 367 942 C315 868 348 814 409 791 C456 773 493 779 540 794 C591 811 635 842 685 826 C735 811 748 780 722 739 C692 691 620 667 546 667 C456 667 400 701 326 731 C234 768 175 731 175 654 Z"
+      />
     </svg>
   );
 }

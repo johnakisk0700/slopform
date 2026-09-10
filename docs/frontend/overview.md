@@ -4,7 +4,7 @@ Status: implemented. Last verified: **2026-08-05**.
 
 `/admin` is the operator landing page. It reads exact platform aggregates from
 `useGetOverview` (`GET /api/v1/overview`) and keeps the existing Operations
-visual vocabulary: `JtsStat`, focus cards, ledger stamps, ruled attention rows
+visual vocabulary: `JtsStat`, focus cards, sentence-case status chips, ruled attention rows
 and a copper note for the snapshot age.
 
 ## Behaviour

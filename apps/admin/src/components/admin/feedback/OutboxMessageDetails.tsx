@@ -495,7 +495,7 @@ export function OutboxMessageDetails({
   );
 }
 
-/** One id under its own micro-caps label, or the reason there is none. */
+/** One id under its own sentence-case label, or the reason there is none. */
 function IdentifierChip({
   label,
   value,

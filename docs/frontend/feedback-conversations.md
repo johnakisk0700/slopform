@@ -68,7 +68,7 @@ retry identity and stale-completion rules.
 `GET /feedback/campaigns/:campaignId/summary` and regenerates via
 `POST …/summary`. Polls only while `pending`. Ready v3 `document`: score /
 directed-edge strip (score rows wear a per-metric Lucide glyph); `wentWell` /
-`wentWrong` as quiet `bg-surface` cards with a 3px left marker + status icon
+`wentWrong` as quiet `bg-surface` cards with a labelled status icon in a soft tile
 (Greek titles «Τι πήγε καλά» / «Τι στράβωσε»). Each finding is
 `{ text, weight }` — `SignalLow`/`Medium`/`High` glyph and soft green/red wash
 that intensifies for `high` (v4; older bodies project to `medium`). Themeable
@@ -169,8 +169,8 @@ Groups answer «is anything waiting for me» first.
 
 | Part            | Treatment                                                                                                  |
 | --------------- | ---------------------------------------------------------------------------------------------------------- |
-| Heading         | Sticky micro-caps: fill, strong hairline, 14px glyph, count right-aligned                                  |
-| NEEDS ATTENTION | `bg-warning-soft` / `text-warning`, 3px `TriangleAlert` marker                                             |
+| Heading         | Sticky sentence-case label: fill, strong hairline, 14px glyph, count right-aligned                         |
+| NEEDS ATTENTION | `bg-warning-soft` / `text-warning`, `TriangleAlert` and visible attention label                            |
 | OPEN            | `bg-surface-sunken` / `text-ink` (`MessageCircleMore`)                                                     |
 | CLOSED          | `bg-surface-sunken` / `text-ink-muted` (`Archive`); selected row keeps full strength                       |
 | Row             | Name (wrap, never single truncate), time, phone · `N/M done` · chips only when heading did not say it      |
@@ -271,7 +271,9 @@ them. Re-aim = withdraw then add (two auditable statements).
 ## Campaign picker
 
 `listFeedbackCampaigns` (newest first): event title, status, launched_at,
-progress. Live/paused: 3px left marker; closed unmarked/desaturated. Opening
+progress. Cards use uniform borders; attention counts have a labelled warning
+badge. Section headings or the by-date status chip identify lifecycle; closed
+cards remain desaturated. Opening
 inbox is a link. Launch is a separate confirmed action
 (`launchFeedbackCampaign` also opens intros). Event detail may carry nullable
 `feedbackCampaignId` for deep-link without launch.

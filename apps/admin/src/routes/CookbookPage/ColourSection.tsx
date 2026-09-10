@@ -289,9 +289,9 @@ const SIDEBAR_SWATCHES: readonly Swatch[] = [
     chip: "bg-sidebar-active",
   },
   {
-    utility: "bg-sidebar-active-index",
-    token: "--jts-color-sidebar-active-index",
-    chip: "bg-sidebar-active-index",
+    utility: "bg-sidebar-accent",
+    token: "--jts-color-sidebar-accent",
+    chip: "bg-sidebar-accent",
   },
 ];
 

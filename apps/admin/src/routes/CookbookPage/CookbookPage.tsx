@@ -21,7 +21,6 @@ export function CookbookPage() {
   return (
     <div className="grid gap-8">
       <JtsPageHeader
-        eyebrow="Development instrument"
         title="Cookbook"
         description="Every colour, type step, HeroUI primitive and project component the admin panel is built from, on one page. Change a token and watch what moves."
       />

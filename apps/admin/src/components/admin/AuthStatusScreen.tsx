@@ -1,4 +1,5 @@
 import { Button } from "@heroui/react";
+import { CircleAlert } from "lucide-react";
 
 import { BrandLockup } from "./BrandLockup";
 
@@ -52,20 +53,13 @@ export function AuthStatusScreen({
       tabIndex={-1}
       className="grid min-h-screen place-items-center bg-canvas p-6"
     >
-      <section className="w-full max-w-lg border-l-[3px] border-primary bg-surface p-8 shadow-sm">
-        <BrandLockup
-          surface="default"
-          className="mb-6"
-          wordmark={
-            <span className="text-xs font-extrabold uppercase tracking-caps text-ink-muted">
-              Slopform
-            </span>
-          }
-        />
-        <p className="text-xs font-extrabold uppercase tracking-caps text-primary">
+      <section className="w-full max-w-lg rounded-md border border-border bg-surface p-8">
+        <BrandLockup surface="default" className="mb-6" />
+        <p className="inline-flex items-center gap-2 rounded-sm bg-warning-soft px-3 py-2 jts-overline text-warning">
+          <CircleAlert aria-hidden="true" className="size-4 shrink-0" />
           {copy.eyebrow}
         </p>
-        <h1 className="mt-2 font-display text-3xl font-extrabold tracking-tight text-ink">
+        <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-ink">
           {copy.title}
         </h1>
         <p className="mt-4 max-w-prose text-sm leading-6 text-ink-muted">

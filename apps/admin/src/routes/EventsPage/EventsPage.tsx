@@ -22,7 +22,6 @@ export function EventsPage() {
   return (
     <div className="flex flex-col gap-6">
       <JtsPageHeader
-        eyebrow="Operations"
         title="Events"
         /* The create/correct steps are already the screen's own buttons. What
            is not on screen is that «finished» is a gate, not a status. */

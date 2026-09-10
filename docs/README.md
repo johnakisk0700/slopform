@@ -50,6 +50,7 @@ through Git history.
 - [ADR 0019: Application logging and nginx request logs](decisions/0019-application-logging.md)
 - [ADR 0020: Use async functions for serial workflows](decisions/0020-effect-for-resource-scopes.md)
 - [ADR 0021: BullMQ schedules PostgreSQL outbox batches](decisions/0021-bullmq-outbox-polling.md)
+- [ADR 0022: Admin visual language](decisions/0022-admin-visual-language.md)
 
 ## Verification
 

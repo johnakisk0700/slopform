@@ -16,20 +16,9 @@ import { campaignStatusBadge } from "../../features/feedback/labels";
 import { type CampaignRow, type CampaignSectionSpec } from "./campaignSections";
 
 /**
- * A campaign as three lines: what dinner, where, and how it is going.
- *
- * It used to carry a status pill in its top-right corner. Under a heading that
- * already names the status, that pill said the same word twice and took the
- * room the event's title wanted — Greek dinner names are long and were
- * truncating at «Δοκιμαστικό δείπνο — Μεζεδοπω…» to make space for a chip
- * repeating the section above it.
- *
- * The tallies lost their sentences for the same reason. «6 open of 6 · 4 need
- * attention» is a line of prose describing two numbers; as glyph-and-number
- * pairs the numbers are what the eye lands on, the row fits beside the
- * timestamp instead of under it, and the two that matter carry their status
- * tone. The sentences are not gone — every stat keeps its full wording for a
- * screen reader and in the hover title, so nothing is knowable by glyph alone.
+ * A navigable campaign summary: title, venue and progress. Lifecycle appears
+ * in the section heading or the by-date status chip. Attention has a visible
+ * labelled badge; other compact tallies retain their full accessible wording.
  */
 export function CampaignCard({
   entry,
@@ -44,29 +33,15 @@ export function CampaignCard({
   /* Only closed campaigns fade; paused campaigns still need an operator decision. */
   const archived = entry.status === "closed";
   const attentionTint = archived
-    ? "text-ink-subtle"
-    : "font-semibold text-warning";
+    ? "bg-surface-sunken text-ink-subtle"
+    : "bg-warning-soft text-warning";
   const parkedTint = archived ? "text-ink-subtle" : "font-semibold text-info";
-
-  /* The 3px left marker in the status tone — this admin's only emphasis motif,
-     and the reason a paused card can be told from a live one with the headings
-     stripped away. Launched gets success green (same tone as its status badge);
-     paused gets warning amber. Closed takes none: being drained of colour is
-     already its whole treatment, and an archived card does not need pointing at. */
-  /* Re-assert the left tone on hover/focus: `hover:border-primary-border`
-     paints all four sides and would otherwise wipe the marker. */
-  const marker =
-    entry.status === "launched"
-      ? "border-l-[3px] border-l-success hover:border-l-success focus-visible:border-l-success"
-      : entry.status === "paused"
-        ? "border-l-[3px] border-l-warning hover:border-l-warning focus-visible:border-l-warning"
-        : "";
 
   return (
     <Link
       to={`/admin/feedback/${entry.id}`}
       /* Restore archived cards on hover/focus so they remain visibly navigable. */
-      className={`block rounded-md border border-border bg-surface px-4 py-3 no-underline transition hover:border-primary-border ${marker} ${
+      className={`block rounded-md border border-border bg-surface px-4 py-3 no-underline transition hover:border-primary-border ${
         archived
           ? "opacity-75 grayscale hover:opacity-100 hover:grayscale-0 focus-visible:opacity-100 focus-visible:grayscale-0"
           : ""
@@ -107,12 +82,14 @@ export function CampaignCard({
           description={`${entry.openCount} open of ${entry.conversationCount} conversations`}
         />
         {entry.needsAttentionCount > 0 ? (
-          <CampaignStat
-            Icon={TriangleAlert}
-            value={String(entry.needsAttentionCount)}
-            description={`${entry.needsAttentionCount} need attention`}
-            tint={attentionTint}
-          />
+          <span
+            className={`inline-flex items-center gap-1 rounded-sm px-2 py-1 text-xs font-semibold ${attentionTint}`}
+          >
+            <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="tabular-nums">
+              {entry.needsAttentionCount} need attention
+            </span>
+          </span>
         ) : null}
         {/* Its own tone, because it is the one thing on a live campaign nobody
             can act on by opening it — the model is unreachable and the only

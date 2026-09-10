@@ -146,7 +146,7 @@ export function FeedbackResultsPage() {
           to: `/admin/feedback/${campaignId}`,
           label: "Back to conversations",
         }}
-        eyebrow="Post-event feedback"
+
         title="Results"
         description="What the table actually said, once the talking stopped: the answers people gave, and the things they mentioned that nobody asked about."
       />

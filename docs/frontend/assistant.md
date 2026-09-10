@@ -126,13 +126,22 @@ to simplify implementation does not authorize removing these affordances.
 - Assistant CSS uses only `--jts-*`. Model selector keeps `notes_ai` geometry
   (8-high trigger, 20rem popover); selected value is one-line title only.
   OpenAI/Gemini/Qwen use code-native `currentColor` brand marks.
+- Empty-conversation suggestions use HeroUI ghost buttons with an arrow icon;
+  choosing a suggestion still only fills the composer draft.
 
 Live and settled state from real fields / parsed contracts — never cosmetic
 fiction:
 
 - **Cards.** Fenced ` ```jts ` → Zod discriminated union → `AssistantCard`
   (`profile` | `event` | `conversation`). Parse failure → raw fence. Cookbook
-  specimens go through real `AssistantMarkdown`.
+  specimens go through real `AssistantMarkdown`. Fields pair muted Lucide icons
+  with visible sentence-case labels; absent data still omits the complete row.
+  Cards have neutral outlines and fit their content height, including in grids.
+  A tinted identity icon and bold name head the card; compact icon badges sit
+  below the name. `needsAttention: true` adds a danger-soft `Needs attention`
+  badge before quiet state/control badges. False or omitted flags add no
+  attention badge or reassuring status. A separator divides the header from
+  the fields; empty field lists and status groups render no space or divider.
 - **Reasoning.** `AssistantReasoningCard` collapsed disclosure in flight and on
   history. OpenAI direct shows a summary when requested; OpenRouter shows live
   reasoning — provider asymmetry, not a UI bug.

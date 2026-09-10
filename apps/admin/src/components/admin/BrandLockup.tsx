@@ -6,11 +6,8 @@ import { BrandMark } from "./BrandMark";
 
 interface BrandLockupProps {
   /**
-   * Which slab the lockup sits on. The wordmark still inherits the parent
-   * text tone; the mark takes the theme's brand colour that belongs on that
-   * slab (`sidebar-active-index` on the inverse panel, `primary` on paper).
-   * Noir's brand is ink / near-white, so the mark stays monochrome there —
-   * that is the theme saying so, not a special case in this component.
+   * Which surface the lockup sits on. The mark uses its inverse lower fill
+   * on a strong surface; the wordmark inherits the parent's text tone.
    */
   surface?: "strong" | "default";
   /** When set, the lockup is a home link; omit for a static mark (e.g. auth status). */
@@ -26,13 +23,13 @@ interface BrandLockupProps {
    * so the descriptor belongs to the lockup instead of trailing below it.
    */
   tagline?: ReactNode;
-  /** Tone for the tagline; it carries the shared micro-caps recipe already. */
+  /** Tone for the tagline; it carries the shared metadata label recipe. */
   taglineClassName?: string;
 }
 
 /**
  * Product logo + “Slopform” wordmark. Use on shell, sign-in, error and auth
- * status. The CSS six-dot `.brand-mark` remains a decorative motif only.
+ * status. BrandMark owns the shared two-piece S.
  */
 export function BrandLockup({
   surface = "default",
@@ -57,25 +54,17 @@ export function BrandLockup({
     </span>
   );
 
-  // Size must travel with the tone class: BrandMark treats a passed className
-  // as a full override of its default h-9, so a colour-only string would
-  // collapse the mark.
-  const markClassName = clsx(
-    tagline ? "h-10 w-10" : "h-9 w-9",
-    surface === "strong" ? "text-sidebar-active-index" : "text-primary",
-  );
-
   const content = (
     <>
       {/* The mark grows with the lockup: against a two-line stack a 36px mark
           reads as an icon beside the words, where 40px reads as the logo the
           words belong to — a little taller than the text block on both edges,
           which is what makes the three parts sit as one. */}
-      <BrandMark className={markClassName} />
+      <BrandMark surface={surface} className={tagline ? "size-10" : "size-9"} />
       {tagline ? (
         // Both lines set solid. The overline recipe carries no line-height, so
         // without `leading-none` the tagline inherits the 1.6 body leading and
-        // opens a gap taller than its own capitals — the wordmark and the
+        // opens a gap taller than the label — the wordmark and the
         // descriptor then read as two stranded lines rather than one block.
         <span className="grid gap-1">
           {label}
@@ -95,7 +84,7 @@ export function BrandLockup({
         to={to}
         aria-label="Slopform admin home"
         className={clsx(
-          "inline-flex items-center gap-3 no-underline",
+          "inline-flex items-center gap-1.5 no-underline",
           className,
         )}
       >
@@ -105,7 +94,7 @@ export function BrandLockup({
   }
 
   return (
-    <div className={clsx("inline-flex items-center gap-3", className)}>
+    <div className={clsx("inline-flex items-center gap-1.5", className)}>
       {content}
     </div>
   );

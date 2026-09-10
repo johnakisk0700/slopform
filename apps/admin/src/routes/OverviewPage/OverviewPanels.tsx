@@ -7,8 +7,7 @@ import { Link } from "react-router";
 import { type QueueItem, type StampTone, stampToneText } from "./overviewData";
 
 /**
- * A ledger "rubber stamp": a HeroUI Chip flattened to a transparent, outlined,
- * uppercase tag whose single hue is carried by `currentColor`.
+ * A compact HeroUI status chip with a visible label and semantic tone.
  */
 export function Stamp({
   tone,
@@ -21,7 +20,7 @@ export function Stamp({
     <Chip
       variant="tertiary"
       className={clsx(
-        "rounded-sm border border-current/40 bg-transparent px-2 py-0.5 text-[0.7rem] font-extrabold uppercase tracking-[0.05em]",
+        "rounded-sm border border-current/40 bg-transparent px-2 py-0.5 jts-overline",
         stampToneText[tone],
       )}
     >
@@ -46,28 +45,19 @@ export function CopperNote({ children }: { children: ReactNode }) {
   );
 }
 
-/** A focus card: kicker rendered above the title, optional wine left marker. */
+/** A focus card with a short context label above the title. */
 export function FocusCard({
   kicker,
   title,
-  primary = false,
   children,
 }: {
   kicker: string;
   title: string;
-  primary?: boolean;
   children: ReactNode;
 }) {
   return (
-    <article
-      className={clsx(
-        "rounded-md border border-border bg-surface p-6",
-        primary && "border-l-[3px] border-l-primary",
-      )}
-    >
-      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-muted">
-        {kicker}
-      </p>
+    <article className="rounded-md border border-border bg-surface p-6">
+      <p className="mb-2 jts-overline text-ink-muted">{kicker}</p>
       <h2 className="mb-4 text-[1.05rem] font-bold tracking-tight text-ink">
         {title}
       </h2>
