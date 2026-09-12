@@ -297,7 +297,8 @@ survive replay. See [ADR 0016](../../decisions/0016-feedback-dispatch-context.md
 Components under
 [`outbox/`](../../../apps/backend/src/modules/post-event-feedback/outbox/):
 `outbound-log.snapshot.ts`, `outbound-log.schemas.ts` (nine origins),
-`outbound-log.service.ts`. `getFeedbackOutboxMessage` returns nullable `log`;
+`outbound-intent.service.ts` (intent and history writes),
+`outbound-log.repository.ts` (persistence). `getFeedbackOutboxMessage` returns nullable `log`;
 unreadable jsonb warns and does not take the screen down.
 `listFeedbackOutboxHistory` batches one-word `origin` only.
 
@@ -311,6 +312,11 @@ via
 The conversation row owns `{ work_revision, work_next_action_at }`; the fence
 table owns epoch/token/lease; BullMQ V2 is a wake-up. Cursor + relational
 uniqueness make replay safe.
+
+The extractor requires the reconciler's execution claim. Admission, provider
+entry, commit and capacity recovery all carry that same claim; there is no
+unfenced extraction entry. Historical conversation and outbox compatibility
+remain at their existing storage boundaries.
 
 Start reading the AI path at `PostEventFeedbackExtractor.extract` and its
 `extractTurn`: admit a snapshot, plan the turn, commit it, then notify.
@@ -832,7 +838,9 @@ reload conversation + consent; ordinary replies compare their immutable
 `message_outbox.dispatch_context` generations; pending ingress cancels
 stale copy; then `attempting`. Accepted → `sent`; explicit reject → `failed`;
 unknown → `ambiguous` + `awaitingHuman` + `undelivered_message`. Cancellation
-never touches `attempting`/`sending`/`ambiguous`. Exact lifecycle-anchored STOP
+never touches `attempting`/`sending`/`ambiguous`. The repository shares the
+bulk cancellation update; each named operation retains its conversation/campaign
+scope and staff, system or exact-outbox exclusions. Exact lifecycle-anchored STOP
 ack is the only automated FIFO exception through pause/close.
 
 ### Transport boundary

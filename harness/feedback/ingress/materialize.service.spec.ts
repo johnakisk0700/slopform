@@ -30,7 +30,6 @@ import type { ParticipantsRepository } from "../../../apps/backend/src/modules/p
 import { FeedbackOutboundTranscriptService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
 import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
 import type { FeedbackOutboundDecision } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.schemas.js";
 import type { OutboundConversationSnapshot } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.snapshot.js";
 import {
@@ -1663,9 +1662,7 @@ function createHarness(): Harness {
   );
   const materializeOutboundIntent = new FeedbackOutboundIntentService(
     repository as unknown as FeedbackOutboxRepository,
-    new FeedbackOutboundLogService(
-      repository as unknown as FeedbackOutboundLogRepository,
-    ),
+    repository as unknown as FeedbackOutboundLogRepository,
   );
   const pendingIngress = new PendingFeedbackIngressService(
     database as unknown as DatabaseService,

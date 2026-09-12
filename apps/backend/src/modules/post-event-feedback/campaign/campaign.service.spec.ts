@@ -15,7 +15,6 @@ import type { EventsRepository } from "../../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
 import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
   FeedbackCampaignMutationNotAllowedError,
@@ -795,9 +794,7 @@ function createService(): {
       ),
       new FeedbackOutboundIntentService(
         repository as unknown as FeedbackOutboxRepository,
-        new FeedbackOutboundLogService(
-          repository as unknown as FeedbackOutboundLogRepository,
-        ),
+        repository as unknown as FeedbackOutboundLogRepository,
       ),
       wakeups as unknown as FeedbackConversationWakeupService,
     ),

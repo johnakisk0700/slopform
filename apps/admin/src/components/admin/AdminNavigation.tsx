@@ -37,19 +37,9 @@ const DEV_NAV_ITEMS: readonly NavItem[] = import.meta.env.DEV
   ? [{ label: "Cookbook", Icon: SwatchBook, to: "/admin/cookbook" }]
   : [];
 
-interface NavVariantStyles {
-  /** Idle text tone + the enabled hover treatment. */
-  link: string;
-  hover: string;
-  /** Active fill / text / weight (the aria-current row). */
-  active: string;
-  iconActive: string;
-  iconIdle: string;
-  /** Hairline above a trailing group, in this surface's own border tone. */
-  divider: string;
-}
+type NavVariantStyles = (typeof VARIANTS)[NavVariant];
 
-const VARIANTS: Record<NavVariant, NavVariantStyles> = {
+const VARIANTS = {
   sidebar: {
     link: "text-sidebar-fg-muted",
     hover: "hover:bg-sidebar-hover hover:text-sidebar-fg",

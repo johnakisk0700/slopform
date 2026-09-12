@@ -1,9 +1,4 @@
-import type {
-  AppTransaction,
-  ParticipantInterestRow,
-  ParticipantRow,
-  ParticipantSourceRecordRow,
-} from "@slopform/database";
+import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 
 import { participantMatchesProfile } from "./wordpress-profile.mapper.js";
 import { WordpressProfileImportRepository } from "./wordpress-profile-import.repository.js";
@@ -22,60 +17,13 @@ export type WordpressProfileImportOutcome =
       readonly code: "duplicate_email_conflict" | "target_drift";
     };
 
-interface ParticipantImportDatabase {
-  transaction<T>(work: (transaction: AppTransaction) => Promise<T>): Promise<T>;
-}
-
-interface ParticipantImportRepository {
-  findSource(
-    transaction: AppTransaction,
-    sourceSystem: string,
-    sourceRecordId: string,
-  ): Promise<ParticipantSourceRecordRow | undefined>;
-  findParticipantById(
-    transaction: AppTransaction,
-    id: string,
-  ): Promise<ParticipantRow | undefined>;
-  findParticipantByEmail(
-    transaction: AppTransaction,
-    emailNormalized: string,
-  ): Promise<ParticipantRow | undefined>;
-  listInterests(
-    transaction: AppTransaction,
-    participantId: string,
-  ): Promise<ParticipantInterestRow[]>;
-  createParticipant(
-    transaction: AppTransaction,
-    input: CanonicalWordpressProfile,
-  ): Promise<ParticipantRow>;
-  updateParticipant(
-    transaction: AppTransaction,
-    participantId: string,
-    input: CanonicalWordpressProfile,
-  ): Promise<void>;
-  createSource(
-    transaction: AppTransaction,
-    participantId: string,
-    sourceSystem: string,
-    input: CanonicalWordpressProfile,
-  ): Promise<void>;
-  updateSource(
-    transaction: AppTransaction,
-    sourceId: string,
-    input: CanonicalWordpressProfile,
-  ): Promise<void>;
-  appendAudit(
-    transaction: AppTransaction,
-    participantId: string,
-    action: string,
-    sourceRecordId: string,
-  ): Promise<void>;
-}
-
 export class WordpressProfileImportService {
   constructor(
-    private readonly database: ParticipantImportDatabase,
-    private readonly repository: ParticipantImportRepository = new WordpressProfileImportRepository(),
+    private readonly database: Pick<DatabaseService, "transaction">,
+    private readonly repository: Pick<
+      WordpressProfileImportRepository,
+      keyof WordpressProfileImportRepository
+    > = new WordpressProfileImportRepository(),
   ) {}
 
   async importOne(

@@ -60,13 +60,8 @@ export class FeedbackModelContextBuilder {
       copy,
       prompt,
       estimatedPromptTokens: estimatePromptTokens(prompt),
-      beforeProviderCall: executionClaim
-        ? () =>
-            this.guards.assertProviderEntry(
-              executionClaim,
-              snapshot.conversation,
-            )
-        : undefined,
+      beforeProviderCall: () =>
+        this.guards.assertProviderEntry(executionClaim, snapshot.conversation),
     };
   }
 

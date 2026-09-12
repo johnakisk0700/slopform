@@ -596,6 +596,161 @@ describePostgres(
       await client?.pool.end();
     });
 
+    it.each([
+      [
+        "conversation",
+        ["queued", "held", "claimed", "staff", "system", "winner"],
+      ],
+      ["terminal", ["queued", "held", "claimed", "staff", "system"]],
+      ["automated", ["queued", "held", "claimed", "system"]],
+      ["superseded", ["queued", "held", "claimed"]],
+      [
+        "campaign",
+        ["queued", "held", "claimed", "staff", "system", "otherConversation"],
+      ],
+    ] as const)(
+      "%s cancellation preserves scope, explicit commitments and provider entry",
+      async (mode, expectedCancelled) => {
+        const rollback = new Error("rollback cancellation fixtures");
+        await expect(
+          client.db.transaction(async (transaction) => {
+            const eventId = randomUUID();
+            const campaignId = randomUUID();
+            const conversationId = randomUUID();
+            const otherCampaignId = randomUUID();
+            const otherEventId = randomUUID();
+            await transaction.insert(events).values(
+              [eventId, otherEventId].map((id) => ({
+                id,
+                title: "Outbox cancellation",
+                startsAt: now,
+                status: "finished" as const,
+              })),
+            );
+            await transaction.insert(feedbackCampaigns).values(
+              [
+                { id: campaignId, eventId },
+                { id: otherCampaignId, eventId: otherEventId },
+              ].map((ids) => ({
+                ...ids,
+                questionSetVersion: 2,
+                questions: { version: 2 },
+                launchedAt: now,
+                launchedBy: "cancellation-test",
+              })),
+            );
+            const winnerId = randomUUID();
+            const rows = Object.entries({
+              queued: { status: "pending", kind: "reply" },
+              held: { status: "held", kind: "reply" },
+              claimed: { status: "claimed", kind: "reply" },
+              staff: { status: "pending", kind: "staff" },
+              system: { status: "pending", kind: "system" },
+              winner: { id: winnerId, status: "pending", kind: "reply" },
+              attempting: { status: "attempting", kind: "reply" },
+              ambiguous: { status: "ambiguous", kind: "reply" },
+              sending: { status: "sending", kind: "reply" },
+              sent: { status: "sent", kind: "reply" },
+              failed: { status: "failed", kind: "reply" },
+              cancelled: { status: "cancelled", kind: "reply" },
+              otherConversation: {
+                status: "pending",
+                kind: "reply",
+                conversationId: randomUUID(),
+              },
+              otherCampaign: {
+                status: "pending",
+                kind: "reply",
+                campaignId: otherCampaignId,
+                conversationId: randomUUID(),
+              },
+            }).map(([label, row]) => ({
+              label,
+              id: randomUUID(),
+              campaignId,
+              conversationId,
+              claimToken: randomUUID(),
+              sendStartedAt: ["attempting", "ambiguous"].includes(row.status)
+                ? now
+                : null,
+              attemptCount: ["attempting", "ambiguous"].includes(row.status)
+                ? 1
+                : 0,
+              claimExpiresAt: ["claimed", "attempting"].includes(row.status)
+                ? new Date(now.getTime() + 60_000)
+                : null,
+              lastError: "prior_reason",
+              ...row,
+            }));
+            await transaction.insert(messageOutbox).values(
+              rows.map(({ label: _label, ...row }) => ({
+                ...row,
+                body: "test",
+                dedupeKey: `cancel-${row.id}`,
+                // Cancellation must also retract rows with unreadable historical context.
+                dispatchContext: {},
+              })),
+            );
+            let cancelled: number;
+            switch (mode) {
+              case "conversation":
+                cancelled = await repository.cancelQueuedOutboxForConversation(
+                  transaction,
+                  conversationId,
+                );
+                break;
+              case "terminal":
+                cancelled =
+                  await repository.cancelQueuedOutboxForConversationExceptId(
+                    transaction,
+                    conversationId,
+                    winnerId,
+                  );
+                break;
+              case "automated":
+                cancelled =
+                  await repository.cancelQueuedAutomatedOutboxForConversation(
+                    transaction,
+                    conversationId,
+                    winnerId,
+                  );
+                break;
+              case "superseded":
+                cancelled =
+                  await repository.cancelQueuedSupersededAutomationForConversation(
+                    transaction,
+                    conversationId,
+                    [winnerId],
+                  );
+                break;
+              case "campaign":
+                cancelled = await repository.cancelQueuedOutboxForCampaign(
+                  transaction,
+                  campaignId,
+                  [winnerId],
+                );
+                break;
+            }
+            const stored = await transaction.select().from(messageOutbox);
+            const cancelledLabels = new Set<string>(expectedCancelled);
+            for (const row of rows) {
+              const shouldCancel = cancelledLabels.has(row.label);
+              expect(stored.find((item) => item.id === row.id)).toMatchObject({
+                status: shouldCancel ? "cancelled" : row.status,
+                claimExpiresAt: shouldCancel ? null : row.claimExpiresAt,
+                lastError:
+                  shouldCancel && mode === "superseded"
+                    ? "superseded_by_newer_testimony"
+                    : "prior_reason",
+              });
+            }
+            expect(cancelled).toBe(expectedCancelled.length);
+            throw rollback;
+          }),
+        ).rejects.toBe(rollback);
+      },
+    );
+
     it("concurrent batches skip locked rows without passing an older conversation message", async () => {
       const eventId = randomUUID();
       const campaignId = randomUUID();

@@ -7,9 +7,7 @@ import {
   FeedbackLogger,
   FeedbackOperationLog,
 } from "../feedback-operation-log.js";
-import { skipExtractOutcome } from "./extract-admission.js";
 import {
-  PostEventFeedbackConversationNotFoundError,
   type ExtractFeedbackResult,
   type ExtractRunSnapshot,
 } from "./extract.types.js";
@@ -51,12 +49,8 @@ export class FeedbackExtractionCapacityService {
       correlationId: snapshot.correlationId,
       conversationId: conversation._id,
       campaignId: snapshot.campaign.id,
-      ...(snapshot.executionClaim
-        ? {
-            workRevision: snapshot.executionClaim.workRevision,
-            executionEpoch: snapshot.executionClaim.epoch,
-          }
-        : {}),
+      workRevision: snapshot.executionClaim.workRevision,
+      executionEpoch: snapshot.executionClaim.epoch,
     });
     this.logger.warn({
       event: "feedback.extract.transcript_capacity",
@@ -71,18 +65,16 @@ export class FeedbackExtractionCapacityService {
         await this.results.lockConversation(transaction, conversation._id);
 
         operation.stage("fence");
-        if (snapshot.executionClaim) {
-          if (
-            !(await this.executionFence.renewWithin(
-              transaction,
-              snapshot.executionClaim,
-            ))
-          ) {
-            throw new FeedbackConversationExecutionGuardError(
-              conversation._id,
-              "execution_claim_lost",
-            );
-          }
+        if (
+          !(await this.executionFence.renewWithin(
+            transaction,
+            snapshot.executionClaim,
+          ))
+        ) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            "execution_claim_lost",
+          );
         }
 
         // Campaign resume updates these rows without the conversation mutex.
@@ -90,44 +82,16 @@ export class FeedbackExtractionCapacityService {
           transaction,
           conversation._id,
         );
-        if (snapshot.executionClaim) {
-          const guardReason = executionSnapshotGuardReason(
-            current,
-            conversation,
-            snapshot.executionClaim,
+        const guardReason = executionSnapshotGuardReason(
+          current,
+          conversation,
+          snapshot.executionClaim,
+        );
+        if (guardReason) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            guardReason,
           );
-          if (guardReason) {
-            throw new FeedbackConversationExecutionGuardError(
-              conversation._id,
-              guardReason,
-            );
-          }
-        } else {
-          if (!current) {
-            throw new PostEventFeedbackConversationNotFoundError(
-              conversation._id,
-            );
-          }
-          const skipped = skipExtractOutcome(current, current.messages.length);
-          if (
-            skipped === "skipped_closed" ||
-            skipped === "skipped_human_control" ||
-            skipped === "skipped_awaiting_human"
-          ) {
-            operation.stage("commit_transaction");
-            return skipped;
-          }
-          if (
-            (current.work?.revision ?? 0) !==
-              (conversation.work?.revision ?? 0) ||
-            current.control.changedAt.getTime() !==
-              conversation.control.changedAt.getTime()
-          ) {
-            throw new FeedbackConversationExecutionGuardError(
-              conversation._id,
-              "authoritative_state_changed",
-            );
-          }
         }
 
         operation.stage("brake");

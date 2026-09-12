@@ -24,12 +24,6 @@ export interface EventAttendeeJoinedRow extends EventAttendeeRow {
   readonly emailNormalized: string;
 }
 
-export interface FeedbackCandidateRow {
-  readonly participantId: string;
-  readonly displayName: string;
-  readonly present: boolean;
-}
-
 export interface EventVenueWrite {
   readonly provider: EventVenueProvider;
   readonly placeId: string;
@@ -377,9 +371,7 @@ export class EventsRepository {
    * Loads present attendees for an event with display names. Callers must apply
    * {@link selectFeedbackCandidates} / the D16 helper rather than filtering ad hoc.
    */
-  async listPresentAttendeeCandidates(
-    eventId: string,
-  ): Promise<FeedbackCandidateRow[]> {
+  async listPresentAttendeeCandidates(eventId: string) {
     const rows = await this.database.db
       .select({
         participantId: eventAttendees.participantId,

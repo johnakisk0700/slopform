@@ -16,7 +16,7 @@ export interface PreparedModelContext {
   readonly copy: PostEventFeedbackQuestionSetCopy;
   readonly prompt: FeedbackExtractionPrompt;
   readonly estimatedPromptTokens: number;
-  readonly beforeProviderCall: FeedbackProviderCallGuard | undefined;
+  readonly beforeProviderCall: FeedbackProviderCallGuard;
 }
 
 /**
@@ -36,11 +36,7 @@ export function extractionTurnLogContext(snapshot: ExtractRunSnapshot) {
     correlationId: snapshot.correlationId,
     conversationId: snapshot.conversation._id,
     campaignId: snapshot.campaign.id,
-    ...(snapshot.executionClaim
-      ? {
-          workRevision: snapshot.executionClaim.workRevision,
-          executionEpoch: snapshot.executionClaim.epoch,
-        }
-      : {}),
+    workRevision: snapshot.executionClaim.workRevision,
+    executionEpoch: snapshot.executionClaim.epoch,
   };
 }

@@ -7,8 +7,9 @@ import {
   feedbackConversationDocumentSchema,
   type FeedbackConversationDocument,
 } from "../post-event-feedback-conversation.document.js";
+import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 import { FeedbackOutboundIntentService } from "./outbound-intent.service.js";
-import type { FeedbackOutboundLogService } from "./outbound-log.service.js";
+import type { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 const conversationId = deriveFeedbackConversationId(
@@ -50,12 +51,18 @@ describe("FeedbackOutboundIntentService", () => {
       dedupeKey: `feedback-intro-${conversationId}`,
       dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
     });
-    expect(outboundLog.record).toHaveBeenCalledWith(transaction, {
-      outbox: { row, inserted: true },
-      conversation,
-      decision: { origin: "campaign_intro", conversationCreated: true },
-      correlationId: "corr-intro",
-    });
+    expect(outboundLog.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
+      transaction,
+      {
+        outboxId: row.id,
+        conversationId,
+        campaignId,
+        origin: "campaign_intro",
+        conversationState: buildOutboundConversationSnapshot(conversation),
+        decision: { origin: "campaign_intro", conversationCreated: true },
+        correlationId: "corr-intro",
+      },
+    );
   });
 
   it("defers STOP history so the caller can record it after mutations", async () => {
@@ -84,17 +91,17 @@ describe("FeedbackOutboundIntentService", () => {
       history: { deferred: "stop_ack_after_mutations" },
     });
 
-    expect(outboundLog.record).not.toHaveBeenCalled();
+    expect(outboundLog.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
     await service.recordHistory(transaction, {
       outbox: inserted,
       conversation,
       decision: { origin: "stop_ack", sourceIngressId },
       correlationId: "corr-stop",
     });
-    expect(outboundLog.record).toHaveBeenCalledWith(
+    expect(outboundLog.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
       transaction,
       expect.objectContaining({
-        conversation,
+        conversationState: buildOutboundConversationSnapshot(conversation),
         decision: { origin: "stop_ack", sourceIngressId },
       }),
     );
@@ -120,7 +127,7 @@ describe("FeedbackOutboundIntentService", () => {
       }),
     ).rejects.toThrow(/does not match kind/);
     expect(outbox.insertOutboxIfAbsent).not.toHaveBeenCalled();
-    expect(outboundLog.record).not.toHaveBeenCalled();
+    expect(outboundLog.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
   });
 });
 
@@ -130,15 +137,17 @@ function createService(): {
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
   };
   outboundLog: {
-    record: ReturnType<typeof vi.fn>;
+    insertOutboxLogIfAbsent: ReturnType<typeof vi.fn>;
   };
 } {
   const outbox = { insertOutboxIfAbsent: vi.fn() };
-  const outboundLog = { record: vi.fn().mockResolvedValue(undefined) };
+  const outboundLog = {
+    insertOutboxLogIfAbsent: vi.fn().mockResolvedValue(undefined),
+  };
   return {
     service: new FeedbackOutboundIntentService(
       outbox as unknown as FeedbackOutboxRepository,
-      outboundLog as unknown as FeedbackOutboundLogService,
+      outboundLog as unknown as FeedbackOutboundLogRepository,
     ),
     outbox,
     outboundLog,

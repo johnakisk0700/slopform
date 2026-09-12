@@ -75,12 +75,8 @@ export class FeedbackExtractionCommitService {
       correlationId: snapshot.correlationId,
       conversationId: snapshot.conversation._id,
       campaignId: snapshot.campaign.id,
-      ...(snapshot.executionClaim
-        ? {
-            workRevision: snapshot.executionClaim.workRevision,
-            executionEpoch: snapshot.executionClaim.epoch,
-          }
-        : {}),
+      workRevision: snapshot.executionClaim.workRevision,
+      executionEpoch: snapshot.executionClaim.epoch,
     });
     try {
       operation.stage("begin_transaction");
@@ -131,9 +127,7 @@ export class FeedbackExtractionCommitService {
       correlationId: snapshot.correlationId,
       closingReason: disposition.closingReason,
       goalStatuses: disposition.goalStatuses,
-      ...(snapshot.executionClaim
-        ? { executionClaim: snapshot.executionClaim }
-        : {}),
+      executionClaim: snapshot.executionClaim,
     });
 
     const suppression: CommitSuppression = {
@@ -222,7 +216,6 @@ export class FeedbackExtractionCommitService {
     snapshot: ExtractRunSnapshot,
   ): Promise<void> {
     if (
-      snapshot.executionClaim &&
       !(await this.executionFence.isCurrent(
         transaction,
         snapshot.executionClaim,
@@ -298,9 +291,7 @@ export class FeedbackExtractionCommitService {
       serviceTier: evidence.serviceTier,
       workSuperseded:
         input.written.executionSuperseded || evidence.rewriteSuperseded,
-      ...(snapshot.executionClaim
-        ? { executionClaim: snapshot.executionClaim }
-        : {}),
+      executionClaim: snapshot.executionClaim,
     });
 
     if (effectiveOutbox && terminalReason !== null) {
@@ -384,7 +375,6 @@ export class FeedbackExtractionCommitService {
     await this.results.lockConversation(transaction, input.conversation._id);
 
     if (
-      input.executionClaim &&
       !(await this.executionFence.renewWithin(
         transaction,
         input.executionClaim,
@@ -396,16 +386,15 @@ export class FeedbackExtractionCommitService {
       );
     }
 
-    const currentConversation = input.executionClaim
-      ? await this.conversations.findById(input.conversation._id, transaction)
-      : undefined;
-    const executionGuardReason = input.executionClaim
-      ? executionSnapshotGuardReason(
-          currentConversation,
-          input.conversation,
-          input.executionClaim,
-        )
-      : undefined;
+    const currentConversation = await this.conversations.findById(
+      input.conversation._id,
+      transaction,
+    );
+    const executionGuardReason = executionSnapshotGuardReason(
+      currentConversation,
+      input.conversation,
+      input.executionClaim,
+    );
     if (
       executionGuardReason === "execution_claim_lost" ||
       executionGuardReason === "execution_invariant_broken"

@@ -11,7 +11,6 @@ import type { ParticipantsRepository } from "../../../apps/backend/src/modules/p
 import { FeedbackOutboundTranscriptService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
 import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../../../apps/backend/src/modules/post-event-feedback/question-set.js";
 import type { FeedbackCampaignRepository } from "../../../apps/backend/src/modules/post-event-feedback/campaign/campaign.repository.js";
 import type { FeedbackIngressRepository } from "../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.repository.js";
@@ -598,9 +597,7 @@ function createService(): {
       ),
       new FeedbackOutboundIntentService(
         repository as unknown as FeedbackOutboxRepository,
-        new FeedbackOutboundLogService(
-          repository as unknown as FeedbackOutboundLogRepository,
-        ),
+        repository as unknown as FeedbackOutboundLogRepository,
       ),
       noopSummaries(),
     ),

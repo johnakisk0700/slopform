@@ -27,7 +27,6 @@ import type { EventsService } from "../../apps/backend/src/modules/events/events
 import type { ParticipantsRepository } from "../../apps/backend/src/modules/participants/participants.repository.js";
 import { phoneE164ToChatJid } from "../../apps/backend/src/integrations/wasender/wasender.jid.js";
 import type { FeedbackOperatorAlert } from "../../apps/backend/src/modules/post-event-feedback/operator-alert.js";
-import { FeedbackOutboundLogService } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
 import type { FeedbackOutboundLogRepository } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
 import { FeedbackOutboundIntentService } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
 import { FeedbackOutboundTranscriptService } from "../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
@@ -616,12 +615,9 @@ export async function createFeedbackLoopHarness(
     conversations as unknown as FeedbackConversationRepository,
   );
   persistDispatchContextOnFake(repository);
-  const outboundLog = new FeedbackOutboundLogService(
-    repository as unknown as FeedbackOutboundLogRepository,
-  );
   const outboundIntent = new FeedbackOutboundIntentService(
     repository as unknown as FeedbackOutboxRepository,
-    outboundLog,
+    repository as unknown as FeedbackOutboundLogRepository,
   );
   const summaries = noopSummaries();
   const staffConversations = new PostEventFeedbackConversationService(

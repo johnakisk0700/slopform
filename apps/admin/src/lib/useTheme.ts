@@ -8,11 +8,6 @@ export type ResolvedTheme = "light" | "dark";
 export const THEME_STORAGE_KEY = "jts-theme";
 const DARK_CLASS = "dark";
 
-interface ThemeState {
-  mode: ThemeMode;
-  systemDark: boolean;
-}
-
 /**
  * Appearance state for the admin panel.
  *
@@ -37,7 +32,7 @@ function readStoredMode(): ThemeMode {
 
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 
-let state: ThemeState = { mode: readStoredMode(), systemDark: media.matches };
+let state = { mode: readStoredMode(), systemDark: media.matches };
 const listeners = new Set<() => void>();
 
 export function resolveTheme(
@@ -52,7 +47,7 @@ function applyTheme(resolved: ResolvedTheme): void {
   document.documentElement.classList.toggle(DARK_CLASS, resolved === "dark");
 }
 
-function setState(next: ThemeState): void {
+function setState(next: typeof state): void {
   state = next;
   applyTheme(resolveTheme(next.mode, next.systemDark));
   for (const listener of listeners) listener();
@@ -71,7 +66,7 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function getSnapshot(): ThemeState {
+function getSnapshot() {
   return state;
 }
 

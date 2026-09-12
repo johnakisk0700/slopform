@@ -32,7 +32,6 @@ import {
 } from "../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-context.js";
 import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
-import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
 import { FeedbackOutboxRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.js";
 
 const postgresTestUrl = process.env.FEEDBACK_POSTGRES_TEST_URL;
@@ -343,9 +342,7 @@ describePostgres("Feedback dispatch-context PostgreSQL contract", () => {
     const database = { db: client.db } as DatabaseService;
     return new FeedbackOutboundIntentService(
       new FeedbackOutboxRepository(database, {} as FeedbackCampaignRepository),
-      new FeedbackOutboundLogService(
-        new FeedbackOutboundLogRepository(database),
-      ),
+      new FeedbackOutboundLogRepository(database),
     );
   }
 

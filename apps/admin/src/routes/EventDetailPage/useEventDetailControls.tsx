@@ -11,7 +11,6 @@ import {
   useUpdateEventAttendee,
 } from "../../api/generated/events";
 import type { EventDetailDtoOutputAttendeesItem } from "../../api/generated/model/eventDetailDtoOutputAttendeesItem";
-import type { ParticipantDtoOutput } from "../../api/generated/model/participantDtoOutput";
 import { useListParticipants } from "../../api/generated/participants";
 import { ParticipantIdentity } from "../../components/admin/participants/ParticipantIdentity";
 import { type EventStatus } from "../../features/event/eventStatus";
@@ -61,7 +60,7 @@ export function useEventDetailControls() {
     await Promise.all([eventQuery.refetch(), participantsQuery.refetch()]);
   }
 
-  const availableParticipants = useMemo<ParticipantDtoOutput[]>(() => {
+  const availableParticipants = useMemo(() => {
     const participantRows = participantsQuery.data?.items ?? [];
     const assigned = new Set(event?.attendees.map((row) => row.participantId));
     return participantRows.filter((row) => !assigned.has(row.id));

@@ -173,9 +173,6 @@ export type OverviewEventsView = z.infer<typeof overviewEventsSchema>;
 export type OverviewParticipantsView = z.infer<
   typeof overviewParticipantsSchema
 >;
-export type OverviewConversationsView = z.infer<
-  typeof overviewConversationsSchema
->;
 export type OverviewOutboxView = z.infer<typeof overviewOutboxSchema>;
 export type OverviewSummariesView = z.infer<typeof overviewSummariesSchema>;
 

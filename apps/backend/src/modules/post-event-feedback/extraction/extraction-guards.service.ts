@@ -129,48 +129,33 @@ export class FeedbackExtractionGuards {
     readonly conversation: FeedbackConversationDocument;
     readonly cursorSeq: number;
     readonly staleOnNewerTestimony: boolean;
-    readonly executionClaim?: FeedbackConversationExecutionClaim;
+    readonly executionClaim: FeedbackConversationExecutionClaim;
   }): Promise<string | undefined> {
     const current = await this.conversations.findById(input.conversation._id);
     if (!current) {
-      if (input.executionClaim) {
-        throw new FeedbackConversationExecutionGuardError(
-          input.conversation._id,
-          "execution_invariant_broken",
-        );
-      }
-      return "conversation_missing";
-    }
-    if (input.executionClaim) {
-      const guardReason = executionSnapshotGuardReason(
-        current,
-        input.conversation,
-        input.executionClaim,
+      throw new FeedbackConversationExecutionGuardError(
+        input.conversation._id,
+        "execution_invariant_broken",
       );
-      if (
-        guardReason === "execution_claim_lost" ||
-        guardReason === "execution_invariant_broken"
-      ) {
-        throw new FeedbackConversationExecutionGuardError(
-          input.conversation._id,
-          guardReason,
-        );
-      }
-      if (guardReason === "authoritative_state_changed") {
-        if (current.lifecycle.state !== "open") {
-          return "conversation_closed";
-        }
-        if (current.control.mode !== "bot") {
-          return "human_control";
-        }
-        return "superseded_by_newer_work";
-      }
     }
-    if (current.lifecycle.state !== "open") {
-      return "conversation_closed";
+    const guardReason = executionSnapshotGuardReason(
+      current,
+      input.conversation,
+      input.executionClaim,
+    );
+    if (
+      guardReason === "execution_claim_lost" ||
+      guardReason === "execution_invariant_broken"
+    ) {
+      throw new FeedbackConversationExecutionGuardError(
+        input.conversation._id,
+        guardReason,
+      );
     }
-    if (current.control.mode !== "bot") {
-      return "human_control";
+    if (guardReason === "authoritative_state_changed") {
+      if (current.lifecycle.state !== "open") return "conversation_closed";
+      if (current.control.mode !== "bot") return "human_control";
+      return "superseded_by_newer_work";
     }
 
     const participant = await this.participants.findById(

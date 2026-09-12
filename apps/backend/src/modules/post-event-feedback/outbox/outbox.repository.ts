@@ -437,22 +437,10 @@ export class FeedbackOutboxRepository {
     transaction: AppTransaction,
     conversationId: string,
   ): Promise<number> {
-    const cancelled = await transaction
-      .update(messageOutbox)
-      .set({
-        status: "cancelled",
-        claimExpiresAt: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(messageOutbox.conversationId, conversationId),
-          cancellablePreSendOutbox(),
-        ),
-      )
-      .returning({ id: messageOutbox.id });
-
-    return cancelled.length;
+    return this.cancelQueuedOutbox(
+      transaction,
+      eq(messageOutbox.conversationId, conversationId),
+    );
   }
 
   /**
@@ -471,25 +459,15 @@ export class FeedbackOutboxRepository {
     conversationId: string,
     authorizedOutboxId: string | null,
   ): Promise<number> {
-    const cancelled = await transaction
-      .update(messageOutbox)
-      .set({
-        status: "cancelled",
-        claimExpiresAt: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(messageOutbox.conversationId, conversationId),
-          ...(authorizedOutboxId === null
-            ? []
-            : [ne(messageOutbox.id, authorizedOutboxId)]),
-          cancellablePreSendOutbox(),
-        ),
-      )
-      .returning({ id: messageOutbox.id });
-
-    return cancelled.length;
+    return this.cancelQueuedOutbox(
+      transaction,
+      and(
+        eq(messageOutbox.conversationId, conversationId),
+        ...(authorizedOutboxId === null
+          ? []
+          : [ne(messageOutbox.id, authorizedOutboxId)]),
+      ),
+    );
   }
 
   /** Cancels one exact row only while transport entry is still impossible. */
@@ -518,26 +496,16 @@ export class FeedbackOutboxRepository {
     conversationId: string,
     authorizedOutboxId?: string | null,
   ): Promise<number> {
-    const cancelled = await transaction
-      .update(messageOutbox)
-      .set({
-        status: "cancelled",
-        claimExpiresAt: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(messageOutbox.conversationId, conversationId),
-          sql`${messageOutbox.kind} <> 'staff'`,
-          ...(authorizedOutboxId
-            ? [ne(messageOutbox.id, authorizedOutboxId)]
-            : []),
-          cancellablePreSendOutbox(),
-        ),
-      )
-      .returning({ id: messageOutbox.id });
-
-    return cancelled.length;
+    return this.cancelQueuedOutbox(
+      transaction,
+      and(
+        eq(messageOutbox.conversationId, conversationId),
+        sql`${messageOutbox.kind} <> 'staff'`,
+        ...(authorizedOutboxId
+          ? [ne(messageOutbox.id, authorizedOutboxId)]
+          : []),
+      ),
+    );
   }
 
   /**
@@ -554,27 +522,17 @@ export class FeedbackOutboxRepository {
     preservedOutboxIds: readonly string[] = [],
   ): Promise<number> {
     const preserved = [...new Set(preservedOutboxIds)];
-    const cancelled = await transaction
-      .update(messageOutbox)
-      .set({
-        status: "cancelled",
-        claimExpiresAt: null,
-        lastError: "superseded_by_newer_testimony",
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(messageOutbox.conversationId, conversationId),
-          notInArray(messageOutbox.kind, ["system", "staff"]),
-          ...(preserved.length > 0
-            ? [notInArray(messageOutbox.id, preserved)]
-            : []),
-          cancellablePreSendOutbox(),
-        ),
-      )
-      .returning({ id: messageOutbox.id });
-
-    return cancelled.length;
+    return this.cancelQueuedOutbox(
+      transaction,
+      and(
+        eq(messageOutbox.conversationId, conversationId),
+        notInArray(messageOutbox.kind, ["system", "staff"]),
+        ...(preserved.length > 0
+          ? [notInArray(messageOutbox.id, preserved)]
+          : []),
+      ),
+      "superseded_by_newer_testimony",
+    );
   }
 
   async cancelQueuedOutboxForCampaign(
@@ -583,22 +541,31 @@ export class FeedbackOutboxRepository {
     preservedOutboxIds: readonly string[] = [],
   ): Promise<number> {
     const preserved = [...new Set(preservedOutboxIds)];
+    return this.cancelQueuedOutbox(
+      transaction,
+      and(
+        eq(messageOutbox.campaignId, campaignId),
+        ...(preserved.length > 0
+          ? [notInArray(messageOutbox.id, preserved)]
+          : []),
+      ),
+    );
+  }
+
+  private async cancelQueuedOutbox(
+    transaction: AppTransaction,
+    scope: SQL | undefined,
+    lastError?: string,
+  ): Promise<number> {
     const cancelled = await transaction
       .update(messageOutbox)
       .set({
         status: "cancelled",
         claimExpiresAt: null,
+        ...(lastError !== undefined ? { lastError } : {}),
         updatedAt: new Date(),
       })
-      .where(
-        and(
-          eq(messageOutbox.campaignId, campaignId),
-          ...(preserved.length > 0
-            ? [notInArray(messageOutbox.id, preserved)]
-            : []),
-          cancellablePreSendOutbox(),
-        ),
-      )
+      .where(and(scope, cancellablePreSendOutbox()))
       .returning({ id: messageOutbox.id });
 
     return cancelled.length;

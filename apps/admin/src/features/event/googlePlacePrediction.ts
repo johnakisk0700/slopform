@@ -1,9 +1,4 @@
-export interface GooglePlaceSelection {
-  placeId: string;
-  label: string;
-  area: string;
-  type: string;
-}
+export type GooglePlaceSelection = ReturnType<typeof selectionFromPrediction>;
 
 interface CanonicalPlaceDetails {
   readonly displayName: string | null | undefined;
@@ -33,7 +28,7 @@ export function selectionFromPrediction(prediction: {
   readonly secondaryText: { readonly text: string } | null;
   readonly text: { readonly text: string };
   readonly types: readonly string[];
-}): GooglePlaceSelection {
+}) {
   return {
     placeId: prediction.placeId,
     label: (prediction.mainText?.text ?? prediction.text.text).trim(),
@@ -50,7 +45,7 @@ export function selectionFromPrediction(prediction: {
 export function selectionFromPlaceDetails(
   prediction: Parameters<typeof selectionFromPrediction>[0],
   details: CanonicalPlaceDetails,
-): GooglePlaceSelection {
+) {
   const fallback = selectionFromPrediction(prediction);
 
   return {

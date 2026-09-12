@@ -116,13 +116,11 @@ export class FeedbackAiTurnAnalysis {
     });
     child.stage("propose");
     try {
-      const generated = prepared.beforeProviderCall
-        ? await this.generation.propose(
-            prepared.prompt,
-            questionKeys,
-            prepared.beforeProviderCall,
-          )
-        : await this.generation.propose(prepared.prompt, questionKeys);
+      const generated = await this.generation.propose(
+        prepared.prompt,
+        questionKeys,
+        prepared.beforeProviderCall,
+      );
       child.complete("generated");
       return generated;
     } catch (error) {
@@ -141,16 +139,11 @@ export class FeedbackAiTurnAnalysis {
     });
     child.stage("classify");
     try {
-      const attention = prepared.beforeProviderCall
-        ? await this.generation.classifyAttention(
-            prepared.context.messages,
-            prepared.context.newParticipantMessageIds,
-            prepared.beforeProviderCall,
-          )
-        : await this.generation.classifyAttention(
-            prepared.context.messages,
-            prepared.context.newParticipantMessageIds,
-          );
+      const attention = await this.generation.classifyAttention(
+        prepared.context.messages,
+        prepared.context.newParticipantMessageIds,
+        prepared.beforeProviderCall,
+      );
       child.complete("classified");
       return attention;
     } catch (error) {

@@ -23,7 +23,7 @@ export interface FeedbackExtractionPersistInput {
   readonly correlationId: string;
   readonly closingReason: "completed" | "declined" | null;
   readonly goalStatuses: readonly GoalStatusUpdate[];
-  readonly executionClaim?: FeedbackConversationExecutionClaim;
+  readonly executionClaim: FeedbackConversationExecutionClaim;
 }
 
 export interface FeedbackExtractionTranscriptCommitInput {
@@ -73,5 +73,5 @@ export interface FeedbackExtractionStateApplyInput {
   readonly usage: FeedbackExtractionUsage;
   readonly serviceTier: string | null;
   readonly workSuperseded: boolean;
-  readonly executionClaim?: FeedbackConversationExecutionClaim;
+  readonly executionClaim: FeedbackConversationExecutionClaim;
 }

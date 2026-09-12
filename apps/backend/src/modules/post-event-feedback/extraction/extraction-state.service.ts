@@ -102,12 +102,8 @@ export class FeedbackExtractionStateApplier {
           model: input.model,
           serviceTier: input.serviceTier,
           usage: input.usage,
-          ...(input.executionClaim
-            ? {
-                workRevision: input.executionClaim.workRevision,
-                executionEpoch: input.executionClaim.epoch,
-              }
-            : {}),
+          workRevision: input.executionClaim.workRevision,
+          executionEpoch: input.executionClaim.epoch,
         },
       );
       const committed =
@@ -160,12 +156,8 @@ export class FeedbackExtractionStateApplier {
             model: input.model,
             serviceTier: input.serviceTier,
             usage: input.usage,
-            ...(input.executionClaim
-              ? {
-                  workRevision: input.executionClaim.workRevision,
-                  executionEpoch: input.executionClaim.epoch,
-                }
-              : {}),
+            workRevision: input.executionClaim.workRevision,
+            executionEpoch: input.executionClaim.epoch,
           },
         );
       const committed =
@@ -176,13 +168,12 @@ export class FeedbackExtractionStateApplier {
         committed ? input.handoffOutboxId : null,
       );
       if (!committed) {
-        const guardReason = input.executionClaim
-          ? (executionSnapshotGuardReason(
-              transition.conversation,
-              input.conversation,
-              input.executionClaim,
-            ) ?? "execution_invariant_broken")
-          : "authoritative_state_changed";
+        const guardReason =
+          executionSnapshotGuardReason(
+            transition.conversation,
+            input.conversation,
+            input.executionClaim,
+          ) ?? "execution_invariant_broken";
         throw new FeedbackConversationExecutionGuardError(
           input.conversation._id,
           guardReason,
@@ -196,12 +187,8 @@ export class FeedbackExtractionStateApplier {
         model: input.model,
         serviceTier: input.serviceTier,
         usage: input.usage,
-        ...(input.executionClaim
-          ? {
-              workRevision: input.executionClaim.workRevision,
-              executionEpoch: input.executionClaim.epoch,
-            }
-          : {}),
+        workRevision: input.executionClaim.workRevision,
+        executionEpoch: input.executionClaim.epoch,
       });
     }
 

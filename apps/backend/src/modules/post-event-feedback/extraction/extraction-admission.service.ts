@@ -78,9 +78,7 @@ export class FeedbackExtractionAdmissionService {
         campaign,
         cursorSeq,
         correlationId: input.correlationId,
-        ...(input.executionClaim
-          ? { executionClaim: input.executionClaim }
-          : {}),
+        executionClaim: input.executionClaim,
       },
     };
   }
@@ -94,7 +92,6 @@ export class FeedbackExtractionAdmissionService {
     await this.database.transaction(async (transaction) => {
       await this.results.lockConversation(transaction, conversation._id);
       if (
-        input.executionClaim &&
         !(await this.executionFence.isCurrent(
           transaction,
           input.executionClaim,
@@ -112,12 +109,8 @@ export class FeedbackExtractionAdmissionService {
         model: conversation.extraction.model,
         // Carry prior model/tier. Omit `usage` — null would erase paid totals.
         serviceTier: conversation.extraction.serviceTier,
-        ...(input.executionClaim
-          ? {
-              workRevision: input.executionClaim.workRevision,
-              executionEpoch: input.executionClaim.epoch,
-            }
-          : {}),
+        workRevision: input.executionClaim.workRevision,
+        executionEpoch: input.executionClaim.epoch,
       });
     });
   }

@@ -15,7 +15,6 @@ import type { FeedbackConversationRepository } from "../../../apps/backend/src/m
 import { FeedbackOutboundTranscriptService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
 import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
 import { FeedbackSimulatorService } from "../../../apps/backend/src/modules/post-event-feedback/simulator/simulator.service.js";
 import {
   FakeAudit,
@@ -460,12 +459,9 @@ function createSimulatorHarness(): SimulatorHarness {
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
-  const outboundLog = new FeedbackOutboundLogService(
-    repository as unknown as FeedbackOutboundLogRepository,
-  );
   const outboundIntent = new FeedbackOutboundIntentService(
     repository as unknown as FeedbackOutboxRepository,
-    outboundLog,
+    repository as unknown as FeedbackOutboundLogRepository,
   );
   const conversationWakeups = {
     ensureQueued: async (input: {

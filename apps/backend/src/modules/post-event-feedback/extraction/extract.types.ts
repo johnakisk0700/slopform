@@ -27,7 +27,7 @@ export class PostEventFeedbackCampaignNotFoundError extends Error {
 export interface ExtractFeedbackInput {
   readonly conversationId: string;
   readonly correlationId: string;
-  readonly executionClaim?: FeedbackConversationExecutionClaim;
+  readonly executionClaim: FeedbackConversationExecutionClaim;
 }
 
 export interface ExtractFeedbackResult {
@@ -50,7 +50,7 @@ export interface ExtractRunSnapshot {
   readonly campaign: FeedbackCampaignRow;
   readonly cursorSeq: number;
   readonly correlationId: string;
-  readonly executionClaim?: FeedbackConversationExecutionClaim;
+  readonly executionClaim: FeedbackConversationExecutionClaim;
 }
 
 /**

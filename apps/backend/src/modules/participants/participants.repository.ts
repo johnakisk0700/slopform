@@ -4,7 +4,6 @@ import {
   events,
   participants,
   type AppTransaction,
-  type EventRow,
   type EventStatus,
   type ParticipantRow,
 } from "@slopform/database";
@@ -12,27 +11,9 @@ import { asc, desc, eq, inArray } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 
-export type ParticipantEventHistoryRow = Pick<
-  EventRow,
-  | "venueProvider"
-  | "venuePlaceId"
-  | "venueLabel"
-  | "venueType"
-  | "venueArea"
-  | "venuePriceLevel"
-  | "venuePriceStartMinor"
-  | "venuePriceEndMinor"
-  | "venuePriceCurrencyCode"
-  | "venueUseInFeedback"
-  | "venueContextRevision"
-> & {
-  eventId: string;
-  title: string;
-  startsAt: Date;
-  status: EventStatus;
-  present: boolean;
-  tableNo: number | null;
-};
+export type ParticipantEventHistoryRow = Awaited<
+  ReturnType<ParticipantsRepository["listEventsForParticipant"]>
+>[number];
 
 @Injectable()
 export class ParticipantsRepository {
@@ -62,9 +43,7 @@ export class ParticipantsRepository {
     return row;
   }
 
-  async listEventsForParticipant(
-    participantId: string,
-  ): Promise<ParticipantEventHistoryRow[]> {
+  async listEventsForParticipant(participantId: string) {
     const rows = await this.database.db
       .select({
         eventId: events.id,
@@ -91,25 +70,7 @@ export class ParticipantsRepository {
       .orderBy(desc(events.startsAt), desc(events.id))
       .limit(500);
 
-    return rows.map((row) => ({
-      eventId: row.eventId,
-      title: row.title,
-      startsAt: row.startsAt,
-      status: row.status as EventStatus,
-      venueProvider: row.venueProvider,
-      venuePlaceId: row.venuePlaceId,
-      venueLabel: row.venueLabel,
-      venueType: row.venueType,
-      venueArea: row.venueArea,
-      venuePriceLevel: row.venuePriceLevel,
-      venuePriceStartMinor: row.venuePriceStartMinor,
-      venuePriceEndMinor: row.venuePriceEndMinor,
-      venuePriceCurrencyCode: row.venuePriceCurrencyCode,
-      venueUseInFeedback: row.venueUseInFeedback,
-      venueContextRevision: row.venueContextRevision,
-      present: row.present,
-      tableNo: row.tableNo,
-    }));
+    return rows.map((row) => ({ ...row, status: row.status as EventStatus }));
   }
 
   async findByIds(ids: readonly string[]): Promise<ParticipantRow[]> {

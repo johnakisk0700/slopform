@@ -150,6 +150,9 @@ a draft of extracted facts and reply text, not permission to send. The outer
 extractor next calls `commits.commit(snapshot, turn)`, which rechecks live state
 under locks and can retain paid facts while suppressing an outdated reply.
 Do not collapse those different checks into a vague `proposalPolicy`.
+The reconciler supplies a required execution claim through the complete
+extraction recipe, including the separate capacity brake after rollback.
+Internal phases do not support an alternate execution without a claim.
 
 Use direct `async`/`await` for this serial recipe. Catch capacity failures only
 around the commit transaction, then run the separate brake after rollback.

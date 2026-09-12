@@ -82,10 +82,6 @@ export const feedbackConversationMessageAttentionSchema = z
   })
   .strict();
 
-export type FeedbackConversationMessageAttention = z.infer<
-  typeof feedbackConversationMessageAttentionSchema
->;
-
 /**
  * Why a conversation is asking for a person.
  *
@@ -197,10 +193,6 @@ export const feedbackConversationAttentionReasonSchema = z
       });
     }
   });
-
-export type FeedbackConversationAttentionReason = z.infer<
-  typeof feedbackConversationAttentionReasonSchema
->;
 
 const RECOMMENDED_ACTION_RANK: Record<
   PostEventFeedbackRecommendedAction,

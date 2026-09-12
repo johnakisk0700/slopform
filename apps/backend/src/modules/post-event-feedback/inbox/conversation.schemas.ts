@@ -587,9 +587,6 @@ export type FeedbackCampaignConversationsView = z.infer<
 export type FeedbackConversationDetailView = z.infer<
   typeof feedbackConversationDetailSchema
 >;
-export type FeedbackConversationAttentionReasonView = z.infer<
-  typeof feedbackConversationAttentionReasonSchema
->;
 export type FeedbackConversationResultsView = z.infer<
   typeof feedbackConversationResultsSchema
 >;
@@ -601,9 +598,6 @@ export type SendFeedbackStaffMessageInput = z.infer<
 >;
 export type CloseFeedbackConversationInput = z.infer<
   typeof closeFeedbackConversationSchema
->;
-export type UpdateFeedbackNoteReviewStatusInput = z.infer<
-  typeof updateFeedbackNoteReviewStatusSchema
 >;
 export type AddFeedbackConversationNoteInput = z.infer<
   typeof addFeedbackConversationNoteSchema

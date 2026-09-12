@@ -105,6 +105,21 @@ Review removed checks for behavior they owned (normalization and business
 invariants included). Run the applicable checks, then integrate. A green suite
 and a negative line count do not substitute for this review.
 
+## Types that earn their place
+
+Prefer inference for initialized local values, hook results and straightforward
+function returns. Let schemas, generated API models and query projections own
+their shapes; do not copy them into a second interface. When a consumer needs a
+name for an inferred result, use a short `ReturnType` / `Awaited` alias beside
+the producer. Remove unused aliases rather than exporting them speculatively.
+
+Keep explicit parameter and component-prop contracts, mutable state unions,
+external adapter ports and HTTP response boundaries. Preserve annotations that
+provide contextual typing, literal unions, readonly guarantees or intentional
+restrictions on what may escape an operation. Do not replace them with `any`,
+casts or intricate type expressions just to remove a declaration. Inference
+should reduce duplication without making the caller harder to understand.
+
 ## Scope and review
 
 - The user's `extract`, STOP and profanity examples described a general

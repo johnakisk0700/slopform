@@ -199,9 +199,18 @@ describe("outbound decision log from extraction", () => {
     // Crash between the PostgreSQL commit and the cursor advance: the same
     // testimony-anchored dedupe key must not produce a second log row.
     harness.conversations.get(harness.conversationId).extraction.cursorSeq = 0;
+    const work = harness.conversations.get(harness.conversationId).work;
+    if (!work) throw new Error("Test conversation requires work state");
     await harness.extractor.extract({
       conversationId: harness.conversationId,
       correlationId: "replay-after-crash",
+      executionClaim: {
+        conversationId: harness.conversationId,
+        workRevision: work.revision,
+        epoch: work.executionEpoch,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      },
     });
     expect(logsForReply()).toHaveLength(1);
   });

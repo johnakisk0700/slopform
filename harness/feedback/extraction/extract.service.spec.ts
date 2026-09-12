@@ -25,7 +25,6 @@ import type { ParticipantsRepository } from "../../../apps/backend/src/modules/p
 import type { FeedbackOperatorAlertInput } from "../../../apps/backend/src/modules/post-event-feedback/operator-alert.js";
 import type { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
 import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
 import { FeedbackOutboundTranscriptService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
@@ -114,6 +113,26 @@ const handoffNote = {
 describe("PostEventFeedbackExtractor", () => {
   let harness: Harness;
 
+  function extractConversation() {
+    const work = harness.conversations.get(conversationId).work;
+    if (!work) throw new Error("Test conversation requires work state");
+    harness.conversations.setExecutionFence(
+      conversationId,
+      work.executionEpoch,
+    );
+    return harness.extractor.extract({
+      conversationId,
+      correlationId,
+      executionClaim: {
+        conversationId,
+        workRevision: work.revision,
+        epoch: work.executionEpoch,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      },
+    });
+  }
+
   beforeAll(() => {
     Logger.overrideLogger(false);
   });
@@ -131,10 +150,7 @@ describe("PostEventFeedbackExtractor", () => {
         closedAt: new Date(),
       };
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("skipped_closed");
       expect(harness.generation.propose).not.toHaveBeenCalled();
@@ -147,10 +163,7 @@ describe("PostEventFeedbackExtractor", () => {
         changedAt: new Date(),
       };
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("skipped_human_control");
       expect(harness.generation.propose).not.toHaveBeenCalled();
@@ -159,10 +172,7 @@ describe("PostEventFeedbackExtractor", () => {
     it("skips when the cursor already covers the transcript", async () => {
       harness.conversations.get(conversationId).extraction.cursorSeq = 2;
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("skipped_cursor");
       expect(harness.generation.propose).not.toHaveBeenCalled();
@@ -181,10 +191,7 @@ describe("PostEventFeedbackExtractor", () => {
       ]);
       conversation.extraction.cursorSeq = 0;
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("skipped_no_new_testimony");
       expect(harness.generation.propose).not.toHaveBeenCalled();
@@ -645,10 +652,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result).toMatchObject({
         outcome: "extracted",
@@ -674,7 +678,7 @@ describe("PostEventFeedbackExtractor", () => {
     it("persists both phases' tokens together, and the tier that bought them", async () => {
       harness.generation.serviceTier = "priority";
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // The proposal call and the attention call are one run and one bill.
       // 800 + 180 in, 110 + 40 out, 910 + 220 total.
@@ -703,7 +707,7 @@ describe("PostEventFeedbackExtractor", () => {
         estimatedPromptTokens: 100,
       });
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.generation.rewriteReply).toHaveBeenCalledOnce();
       expect(harness.repository.outbox).toHaveLength(1);
@@ -726,10 +730,7 @@ describe("PostEventFeedbackExtractor", () => {
         estimatedPromptTokens: 100,
       });
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       expect(harness.repository.outbox).toHaveLength(0);
@@ -739,7 +740,7 @@ describe("PostEventFeedbackExtractor", () => {
     });
 
     it("adds the next run's tokens to what the conversation already spent", async () => {
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       const conversation = harness.conversations.get(conversationId);
       harness.conversations.pushStored(conversationId, {
@@ -750,7 +751,7 @@ describe("PostEventFeedbackExtractor", () => {
         at: new Date("2026-07-25T10:06:00.000Z"),
       });
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.generation.propose).toHaveBeenCalledTimes(2);
       expect(conversation.extraction.usage).toEqual({
@@ -768,7 +769,7 @@ describe("PostEventFeedbackExtractor", () => {
         usage: { inputTokens: null, outputTokens: null, totalTokens: null },
       });
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // Not 800/110/910. The extraction phase's numbers are real, but they are
       // not this run's cost, and a total that presents them as one is wrong in
@@ -779,7 +780,7 @@ describe("PostEventFeedbackExtractor", () => {
     });
 
     it("never bills a run that advanced the cursor without calling the model", async () => {
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
       const conversation = harness.conversations.get(conversationId);
       const afterFirstRun = { ...conversation.extraction.usage };
 
@@ -793,10 +794,7 @@ describe("PostEventFeedbackExtractor", () => {
         at: new Date("2026-07-25T10:07:00.000Z"),
       });
 
-      const replay = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const replay = await extractConversation();
 
       expect(replay.outcome).toBe("skipped_no_new_testimony");
       expect(harness.generation.propose).toHaveBeenCalledTimes(1);
@@ -804,7 +802,7 @@ describe("PostEventFeedbackExtractor", () => {
     });
 
     it("selects candidates live for every run rather than from the document", async () => {
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.events.listFeedbackCandidatesForRespondent,
@@ -858,7 +856,7 @@ describe("PostEventFeedbackExtractor", () => {
       ]);
       conversation.extraction.cursorSeq = 0;
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       const classifierMessages = harness.generation.classifyAttention.mock
         .calls[0]?.[0] as readonly { text: string }[];
@@ -909,7 +907,7 @@ describe("PostEventFeedbackExtractor", () => {
           },
         } satisfies EventFeedbackVenueSnapshot);
 
-        await harness.extractor.extract({ conversationId, correlationId });
+        await extractConversation();
 
         const prompt = harness.generation.propose.mock.calls[0]?.[0] as
           { readonly user: string } | undefined;
@@ -936,7 +934,7 @@ describe("PostEventFeedbackExtractor", () => {
             venue: null,
           } satisfies EventFeedbackVenueSnapshot);
 
-          await harness.extractor.extract({ conversationId, correlationId });
+          await extractConversation();
 
           const prompt = harness.generation.propose.mock.calls[0]?.[0] as
             { readonly user: string } | undefined;
@@ -988,9 +986,9 @@ describe("PostEventFeedbackExtractor", () => {
         harness.conversations.setAllGoals(conversationId, "pending");
         const goalsBefore = harness.conversations.goalStatuses(conversationId);
 
-        const failure = await harness.extractor
-          .extract({ conversationId, correlationId })
-          .catch((error: unknown) => error);
+        const failure = await extractConversation().catch(
+          (error: unknown) => error,
+        );
 
         expect(failure).toBeInstanceOf(FeedbackExtractionGenerationError);
         expect(failure).toMatchObject({
@@ -1031,7 +1029,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.repository.notes[0]).toMatchObject({
         subjectParticipantId: null,
@@ -1079,7 +1077,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // One row, holding what they last said. The attention flag stays because
       // a change of mind is worth a human's eye — it is no longer the only
@@ -1100,7 +1098,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
@@ -1145,15 +1143,12 @@ describe("PostEventFeedbackExtractor", () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       harness.generation.propose.mockResolvedValue(generation({ reply: null }));
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("completed");
       const closing = harness.repository.outbox[0];
       expect(closing).toMatchObject({
-        dedupeKey: `feedback-closing-${conversationId}-2`,
+        dedupeKey: `feedback-closing-${conversationId}-2-r0`,
       });
       expect(
         harness.conversations.get(conversationId).messages.at(-1),
@@ -1182,7 +1177,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.conversations.goalStatuses(conversationId)).toMatchObject({
         event_score: "answered",
@@ -1208,7 +1203,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.repository.answers).toEqual([]);
       expect(harness.repository.outbox).toEqual([
@@ -1262,10 +1257,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
@@ -1306,10 +1298,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("skipped_consent_withdrawn");
       expect(harness.generation.propose).not.toHaveBeenCalled();
@@ -1345,10 +1334,7 @@ describe("PostEventFeedbackExtractor", () => {
     it("drops the ordinary reply, which now answers a thought that moved on", async () => {
       typesDuringTheRun();
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       // The run reading the newer message speaks instead: one reply per burst,
@@ -1375,10 +1361,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result).toMatchObject({ answersWritten: 1, cursorSeq: 2 });
       expect(harness.repository.outbox).toEqual([]);
@@ -1401,10 +1384,7 @@ describe("PostEventFeedbackExtractor", () => {
         reply: "Ευχαριστούμε πολύ!",
       });
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       // Only the outbound is dropped. Suppressing the cursor instead would make
       // "I chose to wait" indistinguishable on disk from "I crashed", and a
@@ -1421,10 +1401,7 @@ describe("PostEventFeedbackExtractor", () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       typesDuringTheRun({ reply: null });
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       expect(harness.repository.outbox).toEqual([]);
@@ -1439,10 +1416,7 @@ describe("PostEventFeedbackExtractor", () => {
       harness.repository.newerInboundBeyondSnapshot = true;
       harness.generation.propose.mockResolvedValue(generation({ reply: null }));
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       expect(harness.repository.outbox).toEqual([]);
@@ -1465,10 +1439,7 @@ describe("PostEventFeedbackExtractor", () => {
         };
       };
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result).toMatchObject({ outcome: "extracted" });
       expect(result).not.toHaveProperty("outboxId");
@@ -1640,10 +1611,7 @@ describe("PostEventFeedbackExtractor", () => {
         reply: "Ευχαριστούμε πολύ!",
       });
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("handoff");
       expect(harness.repository.outbox[0]).toMatchObject({
@@ -1663,10 +1631,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("declined");
       expect(harness.conversations.get(conversationId).lifecycle).toMatchObject(
@@ -1679,7 +1644,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
           body: "Δίκαιο — το ερωτηματολόγιο μόλις έφαγε πόρτα 😅",
-          dedupeKey: `feedback-closing-${conversationId}-2`,
+          dedupeKey: `feedback-closing-${conversationId}-2-r0`,
         }),
       ]);
     });
@@ -1691,10 +1656,7 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("completed");
       expect(harness.conversations.get(conversationId).lifecycle).toMatchObject(
@@ -1706,7 +1668,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
           body: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.closing,
-          dedupeKey: `feedback-closing-${conversationId}-2`,
+          dedupeKey: `feedback-closing-${conversationId}-2-r0`,
         }),
       ]);
     });
@@ -1735,10 +1697,7 @@ describe("PostEventFeedbackExtractor", () => {
         expect(harness.repository.locked).toBeGreaterThanOrEqual(2);
       };
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("completed");
       expect(harness.repository.outbox).toEqual([
@@ -1746,7 +1705,7 @@ describe("PostEventFeedbackExtractor", () => {
         expect.objectContaining({
           id: result.outboxId,
           status: "pending",
-          dedupeKey: `feedback-closing-${conversationId}-2`,
+          dedupeKey: `feedback-closing-${conversationId}-2-r0`,
         }),
       ]);
       expect(
@@ -1771,10 +1730,7 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("completed");
       expect(harness.repository.outbox).toHaveLength(2);
@@ -1785,7 +1741,7 @@ describe("PostEventFeedbackExtractor", () => {
       });
       expect(harness.repository.outbox[1]).toMatchObject({
         status: "pending",
-        dedupeKey: `feedback-closing-${conversationId}-2`,
+        dedupeKey: `feedback-closing-${conversationId}-2-r0`,
       });
     });
 
@@ -1806,10 +1762,7 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result).toMatchObject({ outcome: "extracted" });
       expect(harness.repository.outbox).toEqual([
@@ -1847,10 +1800,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("handoff");
       const conversation = harness.conversations.get(conversationId);
@@ -1940,10 +1890,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
@@ -1977,10 +1924,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).not.toBe("completed");
       expect(harness.repository.outbox[0]?.["body"]).toBe(
@@ -2011,10 +1955,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
@@ -2046,7 +1987,7 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ skippedGoals: ["avoid"] }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.repository.outbox[0]?.body).toBe(
         "Τα λέμε στο επόμενο τραπέζι!",
@@ -2083,10 +2024,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("extracted");
       expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
@@ -2198,10 +2136,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      const disclosure = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const disclosure = await extractConversation();
 
       expect(disclosure.outcome).toBe("extracted");
       expect(harness.conversations.goalStatuses(conversationId).avoid).toBe(
@@ -2241,10 +2176,7 @@ describe("PostEventFeedbackExtractor", () => {
         attentionGeneration([]),
       );
 
-      const thanks = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const thanks = await extractConversation();
 
       expect(thanks.outcome).toBe("extracted");
       expect(conversation.lifecycle.state).toBe("open");
@@ -2286,10 +2218,7 @@ describe("PostEventFeedbackExtractor", () => {
         attentionGeneration([]),
       );
 
-      const confirmation = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const confirmation = await extractConversation();
 
       expect(confirmation.outcome).toBe("completed");
       expect(harness.conversations.goalStatuses(conversationId).avoid).toBe(
@@ -2336,10 +2265,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       // The turn is ordinary: a safety signal is no longer an outcome, a note
       // filter or a copy override — it is an operator flag and nothing else.
@@ -2358,6 +2284,7 @@ describe("PostEventFeedbackExtractor", () => {
           expect.objectContaining({ id: p1, actor: "participant" }),
         ],
         [p1],
+        expect.any(Function),
       );
       expect(
         harness.conversations
@@ -2394,10 +2321,10 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
       // A replay re-asserts the same flag; the seam must stay quiet.
       harness.conversations.get(conversationId).extraction.cursorSeq = 0;
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.alert.raised).toHaveLength(1);
       expect(harness.alert.raised[0]).toMatchObject({
@@ -2417,10 +2344,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("handoff");
       expect(harness.repository.outbox[0]).toMatchObject({
@@ -2452,10 +2376,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result).toMatchObject({ outcome: "handoff", answersWritten: 1 });
       expect(harness.repository.answers).toMatchObject([
@@ -2487,7 +2408,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(atomicHandoff).toHaveBeenCalledWith(
         expect.anything(),
@@ -2522,9 +2443,9 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ handoff: true, reply: "Κάποιος θα σου μιλήσει." }),
       );
 
-      const failure = await harness.extractor
-        .extract({ conversationId, correlationId })
-        .catch((error: unknown) => error);
+      const failure = await extractConversation().catch(
+        (error: unknown) => error,
+      );
 
       expect(failure).toBeInstanceOf(FeedbackExtractionGenerationError);
       expect(failure).toMatchObject({
@@ -2547,7 +2468,7 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ handoff: true, notes: [handoffNote] }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.conversations.get(conversationId).control.mode).toBe(
         "bot",
@@ -2580,7 +2501,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
@@ -2608,7 +2529,7 @@ describe("PostEventFeedbackExtractor", () => {
         ),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.repository.outbox[0]?.body).toBe(
         `Καλή ερώτηση! Πάμε στο επόμενο;\n\n${POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS.who_sees_it.answer}`,
@@ -2643,7 +2564,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
@@ -2708,7 +2629,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // The row is recorded — a silent discard would be us deciding on her
       // behalf with nothing on file to say we did — and it is recorded held.
@@ -2749,10 +2670,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(harness.repository.answers).toEqual([]);
       expect(result.answersWritten).toBe(0);
@@ -2774,7 +2692,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
@@ -2809,7 +2727,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // A revision is about the stored row rather than about one line, so the
       // anchor is the burst that proposed it. A reason linking nowhere is the
@@ -2858,7 +2776,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // The model reading it as 4 again is exactly how a correction used to be
       // undone: the row went back to 4, `extraction_meta` was replaced, and the
@@ -2881,7 +2799,7 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ handoff: true, notes: [handoffNote] }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
@@ -2901,7 +2819,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
@@ -2918,9 +2836,9 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
       harness.conversations.get(conversationId).extraction.cursorSeq = 0;
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
@@ -2942,9 +2860,9 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
       harness.conversations.get(conversationId).extraction.cursorSeq = 0;
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       // Three identical rows is three dismissals for one thing that happened
       // once, which is how a list stops being read at all.
@@ -2983,14 +2901,8 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      const first = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
-      const replay = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const first = await extractConversation();
+      const replay = await extractConversation();
 
       expect(first.outcome).toBe("extracted");
       // The run appended its own reply, so the transcript did move past the
@@ -3041,15 +2953,12 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
       // Imported legacy results with a lagging cursor — not a crash the
       // current persist transaction can leave behind.
       harness.conversations.get(conversationId).extraction.cursorSeq = 0;
 
-      const replay = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const replay = await extractConversation();
 
       expect(replay.outcome).toBe("extracted");
       expect(replay.answersWritten).toBe(0);
@@ -3090,7 +2999,7 @@ describe("PostEventFeedbackExtractor", () => {
       });
       harness.generation.propose.mockResolvedValue(generation({}));
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(
         harness.conversations.goalStatuses(conversationId).event_score,
@@ -3154,10 +3063,7 @@ describe("PostEventFeedbackExtractor", () => {
       seedPendingReply(priorOutboxId);
       rejectMergeWithCapacity();
 
-      const result = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const result = await extractConversation();
 
       expect(result.outcome).toBe("skipped_awaiting_human");
       expect(result.cursorSeq).toBe(0);
@@ -3183,10 +3089,7 @@ describe("PostEventFeedbackExtractor", () => {
       const firstModelCalls = harness.generation.propose.mock.calls.length;
       const firstAttentionCalls =
         harness.generation.classifyAttention.mock.calls.length;
-      const again = await harness.extractor.extract({
-        conversationId,
-        correlationId,
-      });
+      const again = await extractConversation();
 
       expect(again.outcome).toBe("skipped_awaiting_human");
       expect(harness.generation.propose).toHaveBeenCalledTimes(firstModelCalls);
@@ -3215,9 +3118,9 @@ describe("PostEventFeedbackExtractor", () => {
         "mergeMessageAttention",
       ).mockRejectedValue(new Error("relation does not exist"));
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toThrow("relation does not exist");
+      await expect(extractConversation()).rejects.toThrow(
+        "relation does not exist",
+      );
 
       const conversation = harness.conversations.get(conversationId);
       expect(conversation.awaitingHuman).toBe(false);
@@ -3225,61 +3128,58 @@ describe("PostEventFeedbackExtractor", () => {
       expect(conversation.extraction.cursorSeq).toBe(0);
     });
 
-    it.each([true, false])(
-      "does not silence successor work (execution claim: %s)",
-      async (withClaim) => {
-        const live = harness.conversations.get(conversationId);
+    it("does not silence successor work", async () => {
+      const live = harness.conversations.get(conversationId);
+      live.work = {
+        revision: 7,
+        nextActionAt: new Date("2026-07-25T10:05:00.000Z"),
+        executionEpoch: 3,
+      };
+      seedPendingReply(successorOutboxId);
+      harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "review",
+            sourceMessageIds: [p1],
+            confidence: 0.9,
+          },
+        ]),
+      );
+      vi.spyOn(
+        harness.conversations,
+        "mergeMessageAttention",
+      ).mockImplementation(async () => {
         live.work = {
-          revision: 7,
-          nextActionAt: new Date("2026-07-25T10:05:00.000Z"),
+          revision: 8,
+          nextActionAt: new Date("2026-07-25T10:06:00.000Z"),
           executionEpoch: 3,
         };
-        seedPendingReply(successorOutboxId);
-        harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
-        harness.generation.classifyAttention.mockResolvedValue(
-          attentionGeneration([
-            {
-              category: "other_safety",
-              recommendedAction: "review",
-              sourceMessageIds: [p1],
-              confidence: 0.9,
-            },
-          ]),
-        );
-        vi.spyOn(
-          harness.conversations,
-          "mergeMessageAttention",
-        ).mockImplementation(async () => {
-          live.work = {
-            revision: 8,
-            nextActionAt: new Date("2026-07-25T10:06:00.000Z"),
-            executionEpoch: 3,
-          };
-          throw new FeedbackConversationCapacityError();
-        });
+        throw new FeedbackConversationCapacityError();
+      });
 
-        await expect(
-          harness.extractor.extract({
-            conversationId,
-            correlationId,
-            ...(withClaim ? { executionClaim } : {}),
-          }),
-        ).rejects.toMatchObject({
-          name: FeedbackConversationExecutionGuardError.name,
-          reason: "authoritative_state_changed",
-        });
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).rejects.toMatchObject({
+        name: FeedbackConversationExecutionGuardError.name,
+        reason: "authoritative_state_changed",
+      });
 
-        expect(live.awaitingHuman).toBe(false);
-        expect(live.attentionReasons).toEqual([]);
-        expect(live.extraction.cursorSeq).toBe(0);
-        expect(live.work).toMatchObject({ revision: 8, executionEpoch: 3 });
-        expect(
-          harness.repository.outbox.find(
-            (row) => row["id"] === successorOutboxId,
-          ),
-        ).toMatchObject({ status: "pending" });
-      },
-    );
+      expect(live.awaitingHuman).toBe(false);
+      expect(live.attentionReasons).toEqual([]);
+      expect(live.extraction.cursorSeq).toBe(0);
+      expect(live.work).toMatchObject({ revision: 8, executionEpoch: 3 });
+      expect(
+        harness.repository.outbox.find(
+          (row) => row["id"] === successorOutboxId,
+        ),
+      ).toMatchObject({ status: "pending" });
+    });
 
     it("does not let a lost execution claim silence successor work", async () => {
       const live = harness.conversations.get(conversationId);
@@ -3317,7 +3217,7 @@ describe("PostEventFeedbackExtractor", () => {
 
   describe("observability", () => {
     it("logs both model phases per run rather than message count", async () => {
-      await harness.extractor.extract({ conversationId, correlationId });
+      await extractConversation();
 
       expect(harness.metrics.totalTokensObserved()).toBe(1_130);
       expect(harness.metrics.countExtract("extracted")).toBe(1);
@@ -3337,9 +3237,9 @@ describe("PostEventFeedbackExtractor", () => {
         closedAt: new Date(),
       };
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).resolves.toMatchObject({ outcome: "skipped_closed" });
+      await expect(extractConversation()).resolves.toMatchObject({
+        outcome: "skipped_closed",
+      });
 
       expect(
         records.find(
@@ -3371,9 +3271,9 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).resolves.toMatchObject({ outcome: "extracted" });
+      await expect(extractConversation()).resolves.toMatchObject({
+        outcome: "extracted",
+      });
       expect(harness.generation.propose).toHaveBeenCalled();
       expect(harness.generation.classifyAttention).toHaveBeenCalled();
       expect(harness.generation.rewriteReply).not.toHaveBeenCalled();
@@ -3398,9 +3298,7 @@ describe("PostEventFeedbackExtractor", () => {
       });
       harness.generation.propose.mockRejectedValue(failure);
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toBe(failure);
+      await expect(extractConversation()).rejects.toBe(failure);
       expect(
         records.find(
           (record) =>
@@ -3440,9 +3338,7 @@ describe("PostEventFeedbackExtractor", () => {
       harness.generation.propose.mockRejectedValue(proposeFailure);
       harness.generation.classifyAttention.mockRejectedValue(classifyFailure);
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toSatisfy(
+      await expect(extractConversation()).rejects.toSatisfy(
         (error) => error === proposeFailure || error === classifyFailure,
       );
       const proposeFailed = records.find(
@@ -3485,9 +3381,7 @@ describe("PostEventFeedbackExtractor", () => {
       );
       harness.generation.rewriteReply.mockRejectedValue(rewriteFailure);
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toBe(rewriteFailure);
+      await expect(extractConversation()).rejects.toBe(rewriteFailure);
       const rewriteFailed = records.find(
         (record) =>
           record.operation === "extract_rewrite" && record.status === "failed",
@@ -3528,9 +3422,9 @@ describe("PostEventFeedbackExtractor", () => {
       );
       harness.generation.rewriteReply.mockRejectedValue(failure);
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).resolves.toMatchObject({ outcome: "extracted" });
+      await expect(extractConversation()).resolves.toMatchObject({
+        outcome: "extracted",
+      });
       expect(
         records.find(
           (record) =>
@@ -3577,9 +3471,7 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toBe(failure);
+      await expect(extractConversation()).rejects.toBe(failure);
       expect(
         records.find(
           (record) =>
@@ -3638,9 +3530,7 @@ describe("PostEventFeedbackExtractor", () => {
           );
         }
 
-        await expect(
-          harness.extractor.extract({ conversationId, correlationId }),
-        ).rejects.toBe(failure);
+        await expect(extractConversation()).rejects.toBe(failure);
         expect(
           records.find(
             (record) =>
@@ -3675,9 +3565,9 @@ describe("PostEventFeedbackExtractor", () => {
         ]),
       );
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).resolves.toMatchObject({ outcome: "skipped_awaiting_human" });
+      await expect(extractConversation()).resolves.toMatchObject({
+        outcome: "skipped_awaiting_human",
+      });
       expect(
         records.find(
           (record) =>
@@ -3723,9 +3613,7 @@ describe("PostEventFeedbackExtractor", () => {
           },
         );
 
-        await expect(
-          harness.extractor.extract({ conversationId, correlationId }),
-        ).rejects.toBe(failure);
+        await expect(extractConversation()).rejects.toBe(failure);
         expect(
           records.find(
             (record) =>
@@ -3740,7 +3628,7 @@ describe("PostEventFeedbackExtractor", () => {
     );
 
     it.each(["begin_transaction", "commit_transaction"])(
-      "attributes a capacity-brake transaction failure to %s, including an already active brake",
+      "attributes a capacity-brake transaction failure to %s",
       async (stage) => {
         const records = captureOperations();
         const failure = Object.assign(new Error("brake transaction failed"), {
@@ -3755,15 +3643,12 @@ describe("PostEventFeedbackExtractor", () => {
           .mockRejectedValueOnce(new FeedbackConversationCapacityError())
           .mockImplementationOnce(async (work) => {
             if (stage === "commit_transaction") {
-              harness.conversations.get(conversationId).awaitingHuman = true;
               await transact(work);
             }
             throw failure;
           });
 
-        await expect(
-          harness.extractor.extract({ conversationId, correlationId }),
-        ).rejects.toBe(failure);
+        await expect(extractConversation()).rejects.toBe(failure);
         expect(
           records.find(
             (record) =>
@@ -3771,9 +3656,33 @@ describe("PostEventFeedbackExtractor", () => {
               record.status === "failed",
           ),
         ).toMatchObject({ stage, errorCode: "08006" });
-        expect(markAwaitingHuman).not.toHaveBeenCalled();
+        expect(markAwaitingHuman).toHaveBeenCalledTimes(
+          stage === "commit_transaction" ? 1 : 0,
+        );
       },
     );
+
+    it("leaves an already active human brake alone after capacity rollback", async () => {
+      const transact = harness.database.transaction.bind(harness.database);
+      const markAwaitingHuman = vi.spyOn(
+        harness.conversations,
+        "markAwaitingHuman",
+      );
+      vi.spyOn(harness.database, "transaction")
+        .mockRejectedValueOnce(new FeedbackConversationCapacityError())
+        .mockImplementationOnce(async (work) => {
+          harness.conversations.get(conversationId).awaitingHuman = true;
+          return transact(work);
+        });
+
+      await expect(extractConversation()).rejects.toMatchObject({
+        reason: "authoritative_state_changed",
+      });
+      expect(markAwaitingHuman).not.toHaveBeenCalled();
+      expect(harness.conversations.get(conversationId).awaitingHuman).toBe(
+        true,
+      );
+    });
 
     it("classifies commit supersession but still throws the same guard error", async () => {
       const records = captureOperations();
@@ -3785,9 +3694,7 @@ describe("PostEventFeedbackExtractor", () => {
         failure,
       );
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toBe(failure);
+      await expect(extractConversation()).rejects.toBe(failure);
       expect(
         records.find(
           (record) =>
@@ -3818,9 +3725,7 @@ describe("PostEventFeedbackExtractor", () => {
         failure,
       );
 
-      await expect(
-        harness.extractor.extract({ conversationId, correlationId }),
-      ).rejects.toBe(failure);
+      await expect(extractConversation()).rejects.toBe(failure);
       expect(
         records.find(
           (record) =>
@@ -3846,6 +3751,13 @@ describe("PostEventFeedbackExtractor", () => {
       harness.extractor.extract({
         conversationId: randomUUID(),
         correlationId,
+        executionClaim: {
+          conversationId,
+          workRevision: 0,
+          epoch: 3,
+          token: randomUUID(),
+          leaseUntil: new Date(),
+        },
       }),
     ).rejects.toThrow(/was not found/u);
   });
@@ -3853,9 +3765,9 @@ describe("PostEventFeedbackExtractor", () => {
   it("does not retry a job whose campaign is gone", async () => {
     harness.repository.campaigns.clear();
 
-    await expect(
-      harness.extractor.extract({ conversationId, correlationId }),
-    ).rejects.toThrow(/campaign .* was not found/iu);
+    await expect(extractConversation()).rejects.toThrow(
+      /campaign .* was not found/iu,
+    );
   });
 });
 
@@ -4407,7 +4319,9 @@ function createHarness(): Harness {
 
   const database = new FakeDatabase();
   const executionFence = {
-    renewWithin: vi.fn().mockResolvedValue(undefined),
+    renewWithin: vi
+      .fn()
+      .mockImplementation(async (_transaction, claim) => claim),
     isCurrent: vi.fn().mockResolvedValue(true),
     assertCurrent: vi.fn().mockResolvedValue(true),
   };
@@ -4415,12 +4329,9 @@ function createHarness(): Harness {
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
-  const outboundLog = new FeedbackOutboundLogService(
-    repository as unknown as FeedbackOutboundLogRepository,
-  );
   const outboundIntent = new FeedbackOutboundIntentService(
     repository as unknown as FeedbackOutboxRepository,
-    outboundLog,
+    repository as unknown as FeedbackOutboundLogRepository,
   );
   const guards = new FeedbackExtractionGuards(
     database as unknown as DatabaseService,

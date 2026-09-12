@@ -34,25 +34,14 @@ export interface ReadingStatusInput {
  * Scheduling comes from the conversation's durable automation state. Redis
  * retention and job identity are deliberately outside this operator view.
  */
-export interface ReadingStatusLines {
-  /** Always present: how far behind the reading is, or that it is caught up. */
-  unread: string;
-  /** Schedule / failure / in-flight line. Null when there is nothing useful to say. */
-  schedule: string | null;
-  /** Quiet model provenance, when the document recorded one. */
-  model: string | null;
-  /** Whether the block should pull attention (unread backlog or failure). */
-  attention: "none" | "pending" | "danger";
-}
-
 export function readingStatusLines(
   input: ReadingStatusInput,
   now: Date = new Date(),
-): ReadingStatusLines {
+) {
   const unread = unreadLine(input.unreadParticipantMessages);
   const hasUnread = input.unreadParticipantMessages > 0;
   let schedule: string | null = null;
-  let attention: ReadingStatusLines["attention"] = "none";
+  let attention: "none" | "pending" | "danger" = "none";
 
   if (input.constraint !== "none") {
     schedule = CONSTRAINT_COPY[input.constraint];

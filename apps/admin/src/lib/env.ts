@@ -92,20 +92,13 @@ const envSchema = z
     }
   });
 
-export interface Env {
-  apiBase: string;
-  authDevBypass: boolean;
-  clerkPublishableKey?: string | undefined;
-  googleMapsApiKey?: string | undefined;
-}
-
 function validateEnv(input: {
   readonly DEV: unknown;
   readonly VITE_API_BASE: unknown;
   readonly VITE_AUTH_DEV_BYPASS: unknown;
   readonly VITE_CLERK_PUBLISHABLE_KEY: unknown;
   readonly VITE_GOOGLE_MAPS_API_KEY: unknown;
-}): Env {
+}) {
   const result = envSchema.safeParse({
     apiBase: input.VITE_API_BASE,
     authDevBypass: input.VITE_AUTH_DEV_BYPASS,
@@ -127,7 +120,7 @@ function validateEnv(input: {
   };
 }
 
-export const env: Env = validateEnv({
+export const env = validateEnv({
   DEV: import.meta.env.DEV,
   VITE_API_BASE: import.meta.env.VITE_API_BASE,
   VITE_AUTH_DEV_BYPASS: import.meta.env.VITE_AUTH_DEV_BYPASS,

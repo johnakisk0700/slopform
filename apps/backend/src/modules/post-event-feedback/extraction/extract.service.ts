@@ -57,12 +57,8 @@ export class PostEventFeedbackExtractor {
       operation: "extract",
       correlationId: input.correlationId,
       conversationId: input.conversationId,
-      ...(input.executionClaim
-        ? {
-            workRevision: input.executionClaim.workRevision,
-            executionEpoch: input.executionClaim.epoch,
-          }
-        : {}),
+      workRevision: input.executionClaim.workRevision,
+      executionEpoch: input.executionClaim.epoch,
     });
     try {
       const result = await this.extractTurn(input, operation);

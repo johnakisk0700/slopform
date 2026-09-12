@@ -11,7 +11,8 @@ import {
   kindForDispatchPurpose,
   type DispatchEnqueueRequest,
 } from "./dispatch-context.js";
-import { FeedbackOutboundLogService } from "./outbound-log.service.js";
+import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
+import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 import type { FeedbackOutboundDecision } from "./outbound-log.schemas.js";
 import { FeedbackOutboxRepository } from "./outbox.repository.js";
 
@@ -49,7 +50,7 @@ export type OutboundEnqueueMessage = {
 export class FeedbackOutboundIntentService {
   constructor(
     private readonly outbox: FeedbackOutboxRepository,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundLog: FeedbackOutboundLogRepository,
   ) {}
 
   async enqueue(
@@ -106,6 +107,22 @@ export class FeedbackOutboundIntentService {
       readonly correlationId: string;
     },
   ): Promise<void> {
-    await this.outboundLog.record(transaction, input);
+    if (!input.outbox.inserted) {
+      return;
+    }
+
+    const conversationState = buildOutboundConversationSnapshot(
+      input.conversation,
+    );
+
+    await this.outboundLog.insertOutboxLogIfAbsent(transaction, {
+      outboxId: input.outbox.row.id,
+      conversationId: input.outbox.row.conversationId,
+      campaignId: input.outbox.row.campaignId,
+      origin: input.decision.origin,
+      correlationId: input.correlationId,
+      decision: input.decision,
+      conversationState,
+    });
   }
 }

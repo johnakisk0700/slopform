@@ -13,17 +13,18 @@ import {
   feedbackConversationDocumentSchema,
   type FeedbackConversationDocument,
 } from "../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.document.js";
+import type { FeedbackOutboxRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.js";
 import type { FeedbackOutboundLogRepository } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.repository.js";
 import type { FeedbackOutboundDecision } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.schemas.js";
 import { buildOutboundConversationSnapshot } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.snapshot.js";
-import { FeedbackOutboundLogService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-intent.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
 const createdAt = new Date("2026-07-25T10:00:00.000Z");
 const now = new Date("2026-07-25T10:30:00.000Z");
 
-describe("FeedbackOutboundLogService", () => {
+describe("FeedbackOutboundIntentService", () => {
   it("writes one log row for a freshly inserted outbox row", async () => {
     const { service, repository, database } = createService();
     const conversation = conversationDocument({
@@ -43,7 +44,7 @@ describe("FeedbackOutboundLogService", () => {
     };
 
     await database.transaction(async (transaction) => {
-      await service.record(transaction, {
+      await service.recordHistory(transaction, {
         outbox: { row: outbox as MessageOutboxRow, inserted: true },
         conversation,
         decision,
@@ -75,7 +76,7 @@ describe("FeedbackOutboundLogService", () => {
     });
 
     await database.transaction(async (transaction) => {
-      await service.record(transaction, {
+      await service.recordHistory(transaction, {
         outbox: { row: outbox as MessageOutboxRow, inserted: false },
         conversation,
         decision: {
@@ -133,13 +134,14 @@ describe("FeedbackOutboundLogService", () => {
 });
 
 function createService(): {
-  service: FeedbackOutboundLogService;
+  service: FeedbackOutboundIntentService;
   repository: FakeFeedbackRepository;
   database: FakeDatabase;
 } {
   const repository = new FakeFeedbackRepository(() => now);
   const database = new FakeDatabase();
-  const service = new FeedbackOutboundLogService(
+  const service = new FeedbackOutboundIntentService(
+    repository as unknown as FeedbackOutboxRepository,
     repository as unknown as FeedbackOutboundLogRepository,
   );
   return { service, repository, database };

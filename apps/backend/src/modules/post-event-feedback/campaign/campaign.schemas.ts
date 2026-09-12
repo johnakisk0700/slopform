@@ -224,12 +224,6 @@ export class FeedbackCampaignSummaryDto extends createZodDto(
   feedbackCampaignSummarySchema,
 ) {}
 
-export type LaunchFeedbackCampaignInput = z.infer<
-  typeof launchFeedbackCampaignSchema
->;
-export type StartFeedbackConversationInput = z.infer<
-  typeof startFeedbackConversationSchema
->;
 export type FeedbackCampaignView = z.infer<typeof feedbackCampaignSchema>;
 export type FeedbackCampaignListItemView = z.infer<
   typeof feedbackCampaignListItemSchema

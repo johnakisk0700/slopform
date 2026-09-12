@@ -188,9 +188,7 @@ export class FeedbackParticipantReplyPlanner {
           conversation,
           cursorSeq,
           staleOnNewerTestimony: facts.ordinaryReply || facts.progressClosing,
-          ...(snapshot.executionClaim
-            ? { executionClaim: snapshot.executionClaim }
-            : {}),
+          executionClaim: snapshot.executionClaim,
         })
       : undefined;
     if (withheld) {
@@ -228,7 +226,7 @@ export class FeedbackParticipantReplyPlanner {
             dedupeKey: createFeedbackClosingDedupeKey(
               conversation._id,
               testimonySeq,
-              snapshot.executionClaim?.workRevision,
+              snapshot.executionClaim.workRevision,
             ),
           }
         : outboundIntent;
@@ -270,13 +268,11 @@ export class FeedbackParticipantReplyPlanner {
     });
     child.stage("rewrite");
     try {
-      const rewritten = prepared.beforeProviderCall
-        ? await this.generation.rewriteReply(
-            prepared.prompt,
-            draft,
-            prepared.beforeProviderCall,
-          )
-        : await this.generation.rewriteReply(prepared.prompt, draft);
+      const rewritten = await this.generation.rewriteReply(
+        prepared.prompt,
+        draft,
+        prepared.beforeProviderCall,
+      );
       child.complete("rewritten");
       return rewritten;
     } catch (error) {

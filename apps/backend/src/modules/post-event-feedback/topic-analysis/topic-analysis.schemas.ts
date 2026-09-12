@@ -99,7 +99,6 @@ export const topicAnalysisSnapshotSchema = z
   })
   .strict();
 export type TopicAnalysisSnapshot = z.infer<typeof topicAnalysisSnapshotSchema>;
-export type TopicAnalysisDocument = z.infer<typeof topicAnalysisDocumentSchema>;
 
 export const topicAnalysisJobSchema = z
   .object({ schemaVersion: z.literal(1), analysisId: z.uuid() })

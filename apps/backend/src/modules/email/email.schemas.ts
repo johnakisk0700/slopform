@@ -96,7 +96,6 @@ export class EmailDeliveryListDto extends createZodDto(
 export type CreateEmailDeliveryInput = z.infer<
   typeof createEmailDeliverySchema
 >;
-export type EmailDeliveryStatus = z.infer<typeof emailDeliverySchema>["status"];
 export type EmailDeliveryView = z.infer<typeof emailDeliverySchema>;
 export type EmailDeliveryListView = z.infer<typeof emailDeliveryListSchema>;
 export type EmailRelayJobData = z.infer<typeof emailRelayJobDataSchema>;

@@ -23,9 +23,6 @@ export const FEEDBACK_SUMMARY_FINDING_WEIGHTS = [
   "high",
 ] as const;
 
-export type FeedbackSummaryFindingWeight =
-  (typeof FEEDBACK_SUMMARY_FINDING_WEIGHTS)[number];
-
 const listItemSchema = z.string().trim().min(1).max(280);
 
 export const feedbackSummaryFindingItemSchema = z
